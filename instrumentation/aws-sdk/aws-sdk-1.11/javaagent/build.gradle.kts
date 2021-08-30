@@ -97,7 +97,6 @@ tasks {
 
   val testSqs by existing
 
-
   if (!(findProperty("testLatestDeps") as Boolean)) {
     named("check") {
       dependsOn(test_before_1_11_106)
@@ -106,7 +105,7 @@ tasks {
   }
 
   named<Test>("test") {
-    systemProperty("testLatestDeps", findProperty("testLatestDeps"))
+    systemProperty("testLatestDeps", findProperty("testLatestDeps") as Boolean)
   }
 
   withType<Test>().configureEach {

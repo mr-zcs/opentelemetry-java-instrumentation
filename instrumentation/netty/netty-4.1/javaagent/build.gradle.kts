@@ -28,7 +28,7 @@ dependencies {
   api(project(":instrumentation:netty:netty-4.1:library"))
   implementation(project(":instrumentation:netty:netty-4-common:javaagent"))
 
-  //Contains logging handler
+  // Contains logging handler
   testLibrary("io.netty:netty-handler:4.1.0.Final")
   testLibrary("io.netty:netty-transport-native-epoll:4.1.0.Final:linux-x86_64")
 
@@ -43,8 +43,23 @@ dependencies {
 }
 
 tasks {
+  val testConnectionSpan by registering(Test::class) {
+    filter {
+      includeTestsMatching("Netty41ConnectionSpanTest")
+      isFailOnNoMatchingTests = false
+    }
+    include("**/Netty41ConnectionSpanTest.*")
+    jvmArgs("-Dotel.instrumentation.netty.always-create-connect-span=true")
+  }
+
   named<Test>("test") {
-    systemProperty("testLatestDeps", findProperty("testLatestDeps"))
+    systemProperty("testLatestDeps", findProperty("testLatestDeps") as Boolean)
+
+    dependsOn(testConnectionSpan)
+    filter {
+      excludeTestsMatching("Netty41ConnectionSpanTest")
+      isFailOnNoMatchingTests = false
+    }
   }
 }
 
