@@ -11,45 +11,40 @@ muzzle {
   }
 }
 
-testSets {
-  create("latestDepTest")
-}
-
 dependencies {
-  compileOnly("org.apache.kafka:kafka-streams:0.11.0.0")
+  compileOnly(project(":instrumentation:kafka-clients:kafka-clients-0.11:bootstrap"))
+  implementation(project(":instrumentation:kafka-clients:kafka-clients-common:library"))
+
+  library("org.apache.kafka:kafka-streams:0.11.0.0")
 
   // Include kafka-clients instrumentation for tests.
   testInstrumentation(project(":instrumentation:kafka-clients:kafka-clients-0.11:javaagent"))
 
-  testImplementation("org.apache.kafka:kafka-streams:0.11.0.0")
-  testImplementation("org.apache.kafka:kafka-clients:0.11.0.0")
-  testImplementation("org.springframework.kafka:spring-kafka:1.3.3.RELEASE")
-  testImplementation("org.springframework.kafka:spring-kafka-test:1.3.3.RELEASE")
-  testImplementation("javax.xml.bind:jaxb-api:2.2.3")
-  testImplementation("org.assertj:assertj-core")
-
-  add("latestDepTestImplementation", "org.apache.kafka:kafka_2.13:+")
-  add("latestDepTestImplementation", "org.apache.kafka:kafka-clients:+")
-  add("latestDepTestImplementation", "org.apache.kafka:kafka-streams:+")
-  add("latestDepTestImplementation", "org.springframework.kafka:spring-kafka:+")
-  add("latestDepTestImplementation", "org.springframework.kafka:spring-kafka-test:+")
+  testImplementation("org.testcontainers:kafka")
 }
 
 tasks {
   withType<Test>().configureEach {
+    usesService(gradle.sharedServices.registrations["testcontainersBuildService"].service)
+
     // TODO run tests both with and without experimental span attributes
     jvmArgs("-Dotel.instrumentation.kafka.experimental-span-attributes=true")
   }
 
-  if (findProperty("testLatestDeps") as Boolean) {
-    // latestDepTest is still run
-    named("test") {
-      enabled = false
+  val testReceiveSpansDisabled by registering(Test::class) {
+    filter {
+      includeTestsMatching("KafkaStreamsSuppressReceiveSpansTest")
+      isFailOnNoMatchingTests = false
+    }
+    include("**/KafkaStreamsSuppressReceiveSpansTest.*")
+    jvmArgs("-Dotel.instrumentation.common.experimental.suppress-messaging-receive-spans=true")
+  }
+
+  test {
+    dependsOn(testReceiveSpansDisabled)
+    filter {
+      excludeTestsMatching("KafkaStreamsSuppressReceiveSpansTest")
+      isFailOnNoMatchingTests = false
     }
   }
-}
-
-// Requires old version of AssertJ for baseline
-if (!(findProperty("testLatestDeps") as Boolean)) {
-  configurations.testRuntimeClasspath.resolutionStrategy.force("org.assertj:assertj-core:2.9.1")
 }

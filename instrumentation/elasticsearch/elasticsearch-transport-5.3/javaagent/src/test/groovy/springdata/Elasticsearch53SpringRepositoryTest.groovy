@@ -5,16 +5,17 @@
 
 package springdata
 
-import static io.opentelemetry.api.trace.SpanKind.CLIENT
-import static io.opentelemetry.api.trace.SpanKind.INTERNAL
-
 import io.opentelemetry.instrumentation.test.AgentInstrumentationSpecification
 import io.opentelemetry.semconv.trace.attributes.SemanticAttributes
+import org.springframework.context.annotation.AnnotationConfigApplicationContext
+import spock.lang.Shared
+
 import java.lang.reflect.InvocationHandler
 import java.lang.reflect.Method
 import java.lang.reflect.Proxy
-import org.springframework.context.annotation.AnnotationConfigApplicationContext
-import spock.lang.Shared
+
+import static io.opentelemetry.api.trace.SpanKind.CLIENT
+import static io.opentelemetry.api.trace.SpanKind.INTERNAL
 
 class Elasticsearch53SpringRepositoryTest extends AgentInstrumentationSpecification {
   // Setting up appContext & repo with @Shared doesn't allow
@@ -114,7 +115,7 @@ class Elasticsearch53SpringRepositoryTest extends AgentInstrumentationSpecificat
 
     and:
     assertTraces(1) {
-      trace(0, 4) {
+      trace(0, 3) {
         span(0) {
           name "ElasticsearchRepository.index"
           kind INTERNAL
@@ -140,17 +141,6 @@ class Elasticsearch53SpringRepositoryTest extends AgentInstrumentationSpecificat
           }
         }
         span(2) {
-          name "PutMappingAction"
-          kind CLIENT
-          childOf span(1)
-          attributes {
-            "${SemanticAttributes.DB_SYSTEM.key}" "elasticsearch"
-            "${SemanticAttributes.DB_OPERATION.key}" "PutMappingAction"
-            "elasticsearch.action" "PutMappingAction"
-            "elasticsearch.request" "PutMappingRequest"
-          }
-        }
-        span(3) {
           name "RefreshAction"
           kind CLIENT
           childOf span(0)

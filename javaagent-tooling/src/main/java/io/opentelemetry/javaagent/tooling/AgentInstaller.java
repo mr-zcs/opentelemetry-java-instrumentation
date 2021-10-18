@@ -11,23 +11,26 @@ import static io.opentelemetry.javaagent.tooling.SafeServiceLoader.loadOrdered;
 import static io.opentelemetry.javaagent.tooling.Utils.getResourceName;
 import static net.bytebuddy.matcher.ElementMatchers.any;
 
+import io.opentelemetry.context.Context;
+import io.opentelemetry.context.ContextStorage;
+import io.opentelemetry.context.Scope;
 import io.opentelemetry.instrumentation.api.config.Config;
 import io.opentelemetry.javaagent.bootstrap.AgentClassLoader;
-import io.opentelemetry.javaagent.extension.AgentExtension;
+import io.opentelemetry.javaagent.bootstrap.BootstrapPackagePrefixesHolder;
+import io.opentelemetry.javaagent.bootstrap.ClassFileTransformerHolder;
 import io.opentelemetry.javaagent.extension.AgentListener;
 import io.opentelemetry.javaagent.extension.bootstrap.BootstrapPackagesConfigurer;
 import io.opentelemetry.javaagent.extension.ignore.IgnoredTypesConfigurer;
 import io.opentelemetry.javaagent.extension.instrumentation.InstrumentationModule;
-import io.opentelemetry.javaagent.instrumentation.api.internal.BootstrapPackagePrefixesHolder;
 import io.opentelemetry.javaagent.instrumentation.api.internal.InstrumentedTaskClasses;
 import io.opentelemetry.javaagent.tooling.asyncannotationsupport.WeakRefAsyncOperationEndStrategies;
 import io.opentelemetry.javaagent.tooling.bootstrap.BootstrapPackagesBuilderImpl;
 import io.opentelemetry.javaagent.tooling.config.ConfigInitializer;
-import io.opentelemetry.javaagent.tooling.context.FieldBackedProvider;
 import io.opentelemetry.javaagent.tooling.ignore.IgnoredClassLoadersMatcher;
 import io.opentelemetry.javaagent.tooling.ignore.IgnoredTypesBuilderImpl;
 import io.opentelemetry.javaagent.tooling.ignore.IgnoredTypesMatcher;
 import io.opentelemetry.javaagent.tooling.muzzle.AgentTooling;
+import io.opentelemetry.javaagent.tooling.util.Trie;
 import java.lang.instrument.Instrumentation;
 import java.lang.reflect.Proxy;
 import java.util.ArrayList;
@@ -39,6 +42,7 @@ import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.atomic.AtomicReferenceArray;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
+import javax.annotation.Nullable;
 import net.bytebuddy.agent.builder.AgentBuilder;
 import net.bytebuddy.agent.builder.ResettableClassFileTransformer;
 import net.bytebuddy.description.type.TypeDefinition;
@@ -60,6 +64,9 @@ public class AgentInstaller {
   // and continue using the javaagent
   private static final String FORCE_SYNCHRONOUS_AGENT_LISTENERS_CONFIG =
       "otel.javaagent.experimental.force-synchronous-agent-listeners";
+
+  private static final String STRICT_CONTEXT_STRESSOR_MILLIS =
+      "otel.javaagent.testing.strict-context-stressor-millis";
 
   private static final Map<String, List<Runnable>> CLASS_LOAD_CALLBACKS = new HashMap<>();
 
@@ -87,12 +94,19 @@ public class AgentInstaller {
     // caffeine uses AtomicReferenceArray, ensure it is loaded to avoid ClassCircularityError during
     // transform.
     AtomicReferenceArray.class.getName();
+
+    Integer strictContextStressorMillis = Integer.getInteger(STRICT_CONTEXT_STRESSOR_MILLIS);
+    if (strictContextStressorMillis != null) {
+      io.opentelemetry.context.ContextStorage.addWrapper(
+          storage -> new StrictContextStressor(storage, strictContextStressorMillis));
+    }
   }
 
   public static void installBytebuddyAgent(Instrumentation inst) {
     logVersionInfo();
     Config config = Config.get();
     if (config.getBoolean(JAVAAGENT_ENABLED_CONFIG, true)) {
+      setupUnsafe(inst);
       List<AgentListener> agentListeners = loadOrdered(AgentListener.class);
       installBytebuddyAgent(inst, agentListeners);
     } else {
@@ -118,8 +132,6 @@ public class AgentInstaller {
 
     runBeforeAgentListeners(agentListeners, config);
 
-    FieldBackedProvider.resetContextMatchers();
-
     AgentBuilder agentBuilder =
         new AgentBuilder.Default()
             .disableClassFormatChanges()
@@ -129,9 +141,6 @@ public class AgentInstaller {
             .with(AgentTooling.poolStrategy())
             .with(new ClassLoadListener())
             .with(AgentTooling.locationStrategy(Utils.getBootstrapProxy()));
-    // FIXME: we cannot enable it yet due to BB/JVM bug, see
-    // https://github.com/raphw/byte-buddy/issues/558
-    // .with(AgentBuilder.LambdaInstrumentationStrategy.ENABLED)
 
     agentBuilder = configureIgnoredTypes(config, agentBuilder);
 
@@ -164,8 +173,17 @@ public class AgentInstaller {
     logger.debug("Installed {} extension(s)", numberOfLoadedExtensions);
 
     ResettableClassFileTransformer resettableClassFileTransformer = agentBuilder.installOn(inst);
+    ClassFileTransformerHolder.setClassFileTransformer(resettableClassFileTransformer);
     runAfterAgentListeners(agentListeners, config);
     return resettableClassFileTransformer;
+  }
+
+  private static void setupUnsafe(Instrumentation inst) {
+    try {
+      UnsafeInitializer.initialize(inst, AgentInstaller.class.getClassLoader());
+    } catch (UnsupportedClassVersionError exception) {
+      // ignore
+    }
   }
 
   private static void setBootstrapPackages(Config config) {
@@ -189,7 +207,8 @@ public class AgentInstaller {
       configurer.configure(config, builder);
     }
 
-    InstrumentedTaskClasses.setIgnoredTaskClasses(builder.buildIgnoredTasksTrie());
+    Trie<Boolean> ignoredTasksTrie = builder.buildIgnoredTasksTrie();
+    InstrumentedTaskClasses.setIgnoredTaskClassesPredicate(ignoredTasksTrie::contains);
 
     return agentBuilder
         .ignore(any(), new IgnoredClassLoadersMatcher(builder.buildIgnoredClassLoadersTrie()))
@@ -485,4 +504,44 @@ public class AgentInstaller {
   }
 
   private AgentInstaller() {}
+
+  private static class StrictContextStressor implements ContextStorage, AutoCloseable {
+
+    private final ContextStorage contextStorage;
+    private final int sleepMillis;
+
+    private StrictContextStressor(ContextStorage contextStorage, int sleepMillis) {
+      this.contextStorage = contextStorage;
+      this.sleepMillis = sleepMillis;
+    }
+
+    @Override
+    public Scope attach(Context toAttach) {
+      return wrap(contextStorage.attach(toAttach));
+    }
+
+    @Nullable
+    @Override
+    public Context current() {
+      return contextStorage.current();
+    }
+
+    @Override
+    public void close() throws Exception {
+      if (contextStorage instanceof AutoCloseable) {
+        ((AutoCloseable) contextStorage).close();
+      }
+    }
+
+    private Scope wrap(Scope scope) {
+      return () -> {
+        try {
+          Thread.sleep(sleepMillis);
+        } catch (InterruptedException e) {
+          Thread.currentThread().interrupt();
+        }
+        scope.close();
+      };
+    }
+  }
 }

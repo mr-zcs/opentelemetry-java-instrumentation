@@ -5,7 +5,23 @@
 
 package io.opentelemetry.javaagent.instrumentation.tomcat.v10_0
 
+import io.opentelemetry.api.common.AttributeKey
+import io.opentelemetry.instrumentation.test.AgentTestTrait
+import io.opentelemetry.instrumentation.test.asserts.TraceAssert
+import io.opentelemetry.instrumentation.test.base.HttpServerTest
+import io.opentelemetry.semconv.trace.attributes.SemanticAttributes
+import jakarta.servlet.Servlet
+import jakarta.servlet.ServletException
+import org.apache.catalina.Context
+import org.apache.catalina.startup.Tomcat
+import org.apache.tomcat.JarScanFilter
+import org.apache.tomcat.JarScanType
+import spock.lang.Unroll
+
+import java.nio.file.Files
+
 import static io.opentelemetry.instrumentation.test.base.HttpServerTest.ServerEndpoint.AUTH_REQUIRED
+import static io.opentelemetry.instrumentation.test.base.HttpServerTest.ServerEndpoint.CAPTURE_HEADERS
 import static io.opentelemetry.instrumentation.test.base.HttpServerTest.ServerEndpoint.ERROR
 import static io.opentelemetry.instrumentation.test.base.HttpServerTest.ServerEndpoint.EXCEPTION
 import static io.opentelemetry.instrumentation.test.base.HttpServerTest.ServerEndpoint.INDEXED_CHILD
@@ -13,20 +29,6 @@ import static io.opentelemetry.instrumentation.test.base.HttpServerTest.ServerEn
 import static io.opentelemetry.instrumentation.test.base.HttpServerTest.ServerEndpoint.QUERY_PARAM
 import static io.opentelemetry.instrumentation.test.base.HttpServerTest.ServerEndpoint.REDIRECT
 import static io.opentelemetry.instrumentation.test.base.HttpServerTest.ServerEndpoint.SUCCESS
-import static org.awaitility.Awaitility.await
-
-import io.opentelemetry.instrumentation.test.AgentTestTrait
-import io.opentelemetry.instrumentation.test.asserts.TraceAssert
-import io.opentelemetry.instrumentation.test.base.HttpServerTest
-import jakarta.servlet.Servlet
-import jakarta.servlet.ServletException
-import java.nio.file.Files
-import java.util.concurrent.TimeUnit
-import org.apache.catalina.Context
-import org.apache.catalina.startup.Tomcat
-import org.apache.tomcat.JarScanFilter
-import org.apache.tomcat.JarScanType
-import spock.lang.Unroll
 
 @Unroll
 class TomcatAsyncTest extends HttpServerTest<Tomcat> implements AgentTestTrait {
@@ -69,23 +71,6 @@ class TomcatAsyncTest extends HttpServerTest<Tomcat> implements AgentTestTrait {
     server.destroy()
   }
 
-  def cleanup() {
-    // wait for async request threads to complete
-    await()
-      .atMost(15, TimeUnit.SECONDS)
-      .until({ !isRequestRunning() })
-  }
-
-  static boolean isRequestRunning() {
-    def result = Thread.getAllStackTraces().values().find {stackTrace ->
-      def element = stackTrace.find {
-        return it.className == "org.apache.catalina.core.AsyncContextImpl\$RunnableWrapper" && it.methodName == "run"
-      }
-      element != null
-    }
-    return result != null
-  }
-
   @Override
   String getContextPath() {
     return "/tomcat-context"
@@ -100,6 +85,7 @@ class TomcatAsyncTest extends HttpServerTest<Tomcat> implements AgentTestTrait {
     addServlet(context, EXCEPTION.path, servlet)
     addServlet(context, REDIRECT.path, servlet)
     addServlet(context, AUTH_REQUIRED.path, servlet)
+    addServlet(context, CAPTURE_HEADERS.path, servlet)
     addServlet(context, INDEXED_CHILD.path, servlet)
   }
 
@@ -111,6 +97,15 @@ class TomcatAsyncTest extends HttpServerTest<Tomcat> implements AgentTestTrait {
 
   Class<Servlet> servlet() {
     AsyncServlet
+  }
+
+  @Override
+  List<AttributeKey<?>> extraAttributes() {
+    [
+      SemanticAttributes.HTTP_SERVER_NAME,
+      SemanticAttributes.NET_PEER_NAME,
+      SemanticAttributes.NET_TRANSPORT
+    ]
   }
 
   @Override

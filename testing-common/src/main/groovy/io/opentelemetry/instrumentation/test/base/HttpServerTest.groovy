@@ -5,6 +5,28 @@
 
 package io.opentelemetry.instrumentation.test.base
 
+import io.opentelemetry.api.GlobalOpenTelemetry
+import io.opentelemetry.api.common.AttributeKey
+import io.opentelemetry.api.trace.Span
+import io.opentelemetry.api.trace.SpanKind
+import io.opentelemetry.api.trace.StatusCode
+import io.opentelemetry.context.Context
+import io.opentelemetry.instrumentation.api.instrumenter.http.CapturedHttpHeaders
+import io.opentelemetry.instrumentation.test.InstrumentationSpecification
+import io.opentelemetry.instrumentation.test.asserts.TraceAssert
+import io.opentelemetry.sdk.trace.data.SpanData
+import io.opentelemetry.semconv.trace.attributes.SemanticAttributes
+import io.opentelemetry.testing.internal.armeria.common.AggregatedHttpRequest
+import io.opentelemetry.testing.internal.armeria.common.AggregatedHttpResponse
+import io.opentelemetry.testing.internal.armeria.common.HttpMethod
+import io.opentelemetry.testing.internal.armeria.common.HttpRequest
+import io.opentelemetry.testing.internal.armeria.common.HttpRequestBuilder
+import spock.lang.Unroll
+
+import java.util.concurrent.Callable
+import java.util.concurrent.CountDownLatch
+
+import static io.opentelemetry.instrumentation.test.base.HttpServerTest.ServerEndpoint.CAPTURE_HEADERS
 import static io.opentelemetry.instrumentation.test.base.HttpServerTest.ServerEndpoint.ERROR
 import static io.opentelemetry.instrumentation.test.base.HttpServerTest.ServerEndpoint.EXCEPTION
 import static io.opentelemetry.instrumentation.test.base.HttpServerTest.ServerEndpoint.INDEXED_CHILD
@@ -15,29 +37,20 @@ import static io.opentelemetry.instrumentation.test.base.HttpServerTest.ServerEn
 import static io.opentelemetry.instrumentation.test.base.HttpServerTest.ServerEndpoint.SUCCESS
 import static io.opentelemetry.instrumentation.test.utils.TraceUtils.runUnderTrace
 import static io.opentelemetry.semconv.trace.attributes.SemanticAttributes.NetTransportValues.IP_TCP
+import static java.util.Collections.singletonList
 import static org.junit.Assume.assumeTrue
-
-import io.opentelemetry.api.GlobalOpenTelemetry
-import io.opentelemetry.api.common.AttributeKey
-import io.opentelemetry.api.trace.Span
-import io.opentelemetry.api.trace.SpanKind
-import io.opentelemetry.api.trace.StatusCode
-import io.opentelemetry.context.Context
-import io.opentelemetry.instrumentation.test.InstrumentationSpecification
-import io.opentelemetry.instrumentation.test.asserts.TraceAssert
-import io.opentelemetry.sdk.trace.data.SpanData
-import io.opentelemetry.semconv.trace.attributes.SemanticAttributes
-import io.opentelemetry.testing.internal.armeria.common.AggregatedHttpRequest
-import io.opentelemetry.testing.internal.armeria.common.AggregatedHttpResponse
-import io.opentelemetry.testing.internal.armeria.common.HttpMethod
-import io.opentelemetry.testing.internal.armeria.common.HttpRequest
-import io.opentelemetry.testing.internal.armeria.common.HttpRequestBuilder
-import java.util.concurrent.Callable
-import java.util.concurrent.CountDownLatch
-import spock.lang.Unroll
 
 @Unroll
 abstract class HttpServerTest<SERVER> extends InstrumentationSpecification implements HttpServerTestTrait<SERVER> {
+
+  static final String TEST_REQUEST_HEADER = "X-Test-Request"
+  static final String TEST_RESPONSE_HEADER = "X-Test-Response"
+
+  static CapturedHttpHeaders capturedHttpHeadersForTesting() {
+    CapturedHttpHeaders.create(
+      singletonList(TEST_REQUEST_HEADER),
+      singletonList(TEST_RESPONSE_HEADER))
+  }
 
   String expectedServerSpanName(ServerEndpoint endpoint) {
     switch (endpoint) {
@@ -82,12 +95,20 @@ abstract class HttpServerTest<SERVER> extends InstrumentationSpecification imple
     false
   }
 
+  String peerIp(ServerEndpoint endpoint) {
+    "127.0.0.1"
+  }
+
   boolean testNotFound() {
     true
   }
 
   boolean testPathParam() {
     false
+  }
+
+  boolean testCapturedHttpHeaders() {
+    true
   }
 
   boolean testErrorBody() {
@@ -114,6 +135,10 @@ abstract class HttpServerTest<SERVER> extends InstrumentationSpecification imple
     false
   }
 
+  boolean verifyServerSpanEndTime() {
+    return true
+  }
+
   List<AttributeKey<?>> extraAttributes() {
     []
   }
@@ -124,6 +149,7 @@ abstract class HttpServerTest<SERVER> extends InstrumentationSpecification imple
     ERROR("error-status", 500, "controller error"), // "error" is a special path for some frameworks
     EXCEPTION("exception", 500, "controller exception"),
     NOT_FOUND("notFound", 404, "not found"),
+    CAPTURE_HEADERS("captureHeaders", 200, "headers captured"),
 
     // TODO: add tests for the following cases:
     QUERY_PARAM("query?some=query", 200, "some=query"),
@@ -368,6 +394,24 @@ abstract class HttpServerTest<SERVER> extends InstrumentationSpecification imple
     method = "GET"
   }
 
+  def "test captured HTTP headers"() {
+    setup:
+    assumeTrue(testCapturedHttpHeaders())
+
+    def request = AggregatedHttpRequest.of(request(CAPTURE_HEADERS, "GET").headers()
+      .toBuilder()
+      .add(TEST_REQUEST_HEADER, "test")
+      .build())
+    def response = client.execute(request).aggregate().join()
+
+    expect:
+    response.status().code() == CAPTURE_HEADERS.status
+    response.contentUtf8() == CAPTURE_HEADERS.body
+
+    and:
+    assertTheTraces(1, null, null, "GET", CAPTURE_HEADERS, null, response)
+  }
+
   /*
   This test fires a bunch of parallel request to the fixed backend endpoint.
   That endpoint is supposed to create a new child span in the context of the SERVER span.
@@ -398,7 +442,7 @@ abstract class HttpServerTest<SERVER> extends InstrumentationSpecification imple
     when:
     count.times { index ->
       HttpRequestBuilder request = HttpRequest.builder()
-        // Force HTTP/1 via h1c so upgrade requests don't show up as traces
+      // Force HTTP/1 via h1c so upgrade requests don't show up as traces
         .get(endpoint.resolvePath(address).toString().replace("http://", "h1c://"))
         .queryParam(ServerEndpoint.ID_PARAMETER_NAME, "$index")
       runUnderTrace("client " + index) {
@@ -466,6 +510,11 @@ abstract class HttpServerTest<SERVER> extends InstrumentationSpecification imple
       (0..size - 1).each {
         trace(it, spanCount) {
           def spanIndex = 0
+          if (verifyServerSpanEndTime() && spanCount > 1) {
+            (1..spanCount - 1).each { index ->
+              assert it.span(0).endEpochNanos - it.span(index).endEpochNanos >= 0
+            }
+          }
           serverSpan(it, spanIndex++, traceID, parentID, method, response?.content()?.length(), endpoint)
           if (hasHandlerSpan(endpoint)) {
             handlerSpan(it, spanIndex++, span(0), method, endpoint)
@@ -565,44 +614,48 @@ abstract class HttpServerTest<SERVER> extends InstrumentationSpecification imple
         }
       }
       attributes {
+        if (extraAttributes.contains(SemanticAttributes.NET_TRANSPORT)) {
+          "${SemanticAttributes.NET_TRANSPORT}" IP_TCP
+        }
+        // net.peer.name resolves to "127.0.0.1" on windows which is same as net.peer.ip so then not captured
+        "${SemanticAttributes.NET_PEER_NAME.key}" { it == null || it == address.host }
         "${SemanticAttributes.NET_PEER_PORT.key}" { it == null || it instanceof Long }
-        "${SemanticAttributes.NET_PEER_IP.key}" { it == null || it == "127.0.0.1" } // Optional
+        "${SemanticAttributes.NET_PEER_IP.key}" { it == null || it == peerIp(endpoint) } // Optional
+
         "${SemanticAttributes.HTTP_CLIENT_IP.key}" { it == null || it == TEST_CLIENT_IP }
-        "${SemanticAttributes.HTTP_URL.key}" { it == "${endpoint.resolve(address)}" || it == "${endpoint.resolveWithoutFragment(address)}" }
         "${SemanticAttributes.HTTP_METHOD.key}" method
         "${SemanticAttributes.HTTP_STATUS_CODE.key}" endpoint.status
         "${SemanticAttributes.HTTP_FLAVOR.key}" { it == "1.1" || it == "2.0" }
         "${SemanticAttributes.HTTP_USER_AGENT.key}" TEST_USER_AGENT
 
-        if (extraAttributes.contains(SemanticAttributes.HTTP_HOST)) {
-          "${SemanticAttributes.HTTP_HOST}" "localhost:${port}"
-        }
+        "${SemanticAttributes.HTTP_HOST}" { it == "localhost" || it == "localhost:${port}" }
+        // TODO netty does not set http.scheme - refactor HTTP server tests so that it's possible to specify extracted attributes, like in HTTP client tests
+        "${SemanticAttributes.HTTP_SCHEME}" { it == "http" || it == null }
+        "${SemanticAttributes.HTTP_TARGET}" endpoint.resolvePath(address).getPath() + "${endpoint == QUERY_PARAM ? "?${endpoint.body}" : ""}"
+
         if (extraAttributes.contains(SemanticAttributes.HTTP_REQUEST_CONTENT_LENGTH)) {
           "${SemanticAttributes.HTTP_REQUEST_CONTENT_LENGTH}" Long
+        } else {
+          "${SemanticAttributes.HTTP_REQUEST_CONTENT_LENGTH}" { it == null || it instanceof Long }
+          // Optional
         }
         if (extraAttributes.contains(SemanticAttributes.HTTP_RESPONSE_CONTENT_LENGTH)) {
           "${SemanticAttributes.HTTP_RESPONSE_CONTENT_LENGTH}" Long
+        } else {
+          "${SemanticAttributes.HTTP_RESPONSE_CONTENT_LENGTH}" { it == null || it instanceof Long }
+          // Optional
         }
         if (extraAttributes.contains(SemanticAttributes.HTTP_ROUTE)) {
           // TODO(anuraaga): Revisit this when applying instrumenters to more libraries, Armeria
           // currently reports '/*' which is a fallback route.
           "${SemanticAttributes.HTTP_ROUTE}" String
         }
-        if (extraAttributes.contains(SemanticAttributes.HTTP_SCHEME)) {
-          "${SemanticAttributes.HTTP_SCHEME}" "http"
-        }
         if (extraAttributes.contains(SemanticAttributes.HTTP_SERVER_NAME)) {
           "${SemanticAttributes.HTTP_SERVER_NAME}" String
         }
-        if (extraAttributes.contains(SemanticAttributes.HTTP_TARGET)) {
-          "${SemanticAttributes.HTTP_TARGET}" endpoint.path + "${endpoint == QUERY_PARAM ? "?${endpoint.body}" : ""}"
-        }
-        if (extraAttributes.contains(SemanticAttributes.NET_PEER_NAME)) {
-          // "localhost" on linux, "127.0.0.1" on windows
-          "${SemanticAttributes.NET_PEER_NAME.key}" { it == "localhost" || it == "127.0.0.1" }
-        }
-        if (extraAttributes.contains(SemanticAttributes.NET_TRANSPORT)) {
-          "${SemanticAttributes.NET_TRANSPORT}" IP_TCP
+        if (endpoint == CAPTURE_HEADERS) {
+          "http.request.header.x_test_request" { it == ["test"] }
+          "http.response.header.x_test_response" { it == ["test"] }
         }
       }
     }
@@ -616,43 +669,44 @@ abstract class HttpServerTest<SERVER> extends InstrumentationSpecification imple
       kind SpanKind.SERVER // can't use static import because of SERVER type parameter
       childOf((SpanData) parent)
       attributes {
+        if (extraAttributes.contains(SemanticAttributes.NET_TRANSPORT)) {
+          "${SemanticAttributes.NET_TRANSPORT}" IP_TCP
+        }
+        // net.peer.name resolves to "127.0.0.1" on windows which is same as net.peer.ip so then not captured
+        "${SemanticAttributes.NET_PEER_NAME.key}" { (it == null || it == address.host) }
         "${SemanticAttributes.NET_PEER_PORT.key}" { it == null || it instanceof Long }
-        "${SemanticAttributes.NET_PEER_IP.key}" { it == null || it == "127.0.0.1" } // Optional
+        "${SemanticAttributes.NET_PEER_IP.key}" { it == null || it == peerIp(endpoint) } // Optional
+
         "${SemanticAttributes.HTTP_CLIENT_IP.key}" { it == null || it == TEST_CLIENT_IP }
-        "${SemanticAttributes.HTTP_URL.key}" endpoint.resolve(address).toString() + "?id=$requestId"
         "${SemanticAttributes.HTTP_METHOD.key}" "GET"
         "${SemanticAttributes.HTTP_STATUS_CODE.key}" 200
         "${SemanticAttributes.HTTP_FLAVOR.key}" "1.1"
         "${SemanticAttributes.HTTP_USER_AGENT.key}" TEST_USER_AGENT
 
-        if (extraAttributes.contains(SemanticAttributes.HTTP_HOST)) {
-          "${SemanticAttributes.HTTP_HOST}" "localhost:${port}"
-        }
+        "${SemanticAttributes.HTTP_HOST}" { it == "localhost" || it == "localhost:${port}" }
+        // TODO netty does not set http.scheme - refactor HTTP server tests so that it's possible to specify extracted attributes, like in HTTP client tests
+        "${SemanticAttributes.HTTP_SCHEME}" { it == "http" || it == null }
+        "${SemanticAttributes.HTTP_TARGET}" endpoint.resolvePath(address).getPath() + "?id=$requestId"
+
         if (extraAttributes.contains(SemanticAttributes.HTTP_REQUEST_CONTENT_LENGTH)) {
           "${SemanticAttributes.HTTP_REQUEST_CONTENT_LENGTH}" Long
+        } else {
+          "${SemanticAttributes.HTTP_REQUEST_CONTENT_LENGTH}" { it == null || it instanceof Long }
+          // Optional
         }
         if (extraAttributes.contains(SemanticAttributes.HTTP_RESPONSE_CONTENT_LENGTH)) {
           "${SemanticAttributes.HTTP_RESPONSE_CONTENT_LENGTH}" Long
+        } else {
+          "${SemanticAttributes.HTTP_RESPONSE_CONTENT_LENGTH}" { it == null || it instanceof Long }
+          // Optional
         }
         if (extraAttributes.contains(SemanticAttributes.HTTP_ROUTE)) {
           // TODO(anuraaga): Revisit this when applying instrumenters to more libraries, Armeria
           // currently reports '/*' which is a fallback route.
           "${SemanticAttributes.HTTP_ROUTE}" String
         }
-        if (extraAttributes.contains(SemanticAttributes.HTTP_SCHEME)) {
-          "${SemanticAttributes.HTTP_SCHEME}" "http"
-        }
         if (extraAttributes.contains(SemanticAttributes.HTTP_SERVER_NAME)) {
           "${SemanticAttributes.HTTP_SERVER_NAME}" String
-        }
-        if (extraAttributes.contains(SemanticAttributes.HTTP_TARGET)) {
-          "${SemanticAttributes.HTTP_TARGET}" endpoint.path + "?id=$requestId"
-        }
-        if (extraAttributes.contains(SemanticAttributes.NET_PEER_NAME)) {
-          "${SemanticAttributes.NET_PEER_NAME}" "localhost"
-        }
-        if (extraAttributes.contains(SemanticAttributes.NET_TRANSPORT)) {
-          "${SemanticAttributes.NET_TRANSPORT}" IP_TCP
         }
       }
     }

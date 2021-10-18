@@ -5,40 +5,47 @@
 
 package io.opentelemetry.javaagent.instrumentation.spring.batch.job;
 
-import static io.opentelemetry.javaagent.instrumentation.spring.batch.job.JobExecutionTracer.tracer;
+import static io.opentelemetry.javaagent.instrumentation.api.Java8BytecodeBridge.currentContext;
+import static io.opentelemetry.javaagent.instrumentation.spring.batch.job.JobSingletons.jobInstrumenter;
 
 import io.opentelemetry.context.Context;
 import io.opentelemetry.context.Scope;
-import io.opentelemetry.javaagent.instrumentation.api.ContextStore;
+import io.opentelemetry.instrumentation.api.field.VirtualField;
 import io.opentelemetry.javaagent.instrumentation.spring.batch.ContextAndScope;
 import org.springframework.batch.core.JobExecution;
 import org.springframework.batch.core.JobExecutionListener;
 import org.springframework.core.Ordered;
 
 public final class TracingJobExecutionListener implements JobExecutionListener, Ordered {
-  private final ContextStore<JobExecution, ContextAndScope> executionContextStore;
+  private final VirtualField<JobExecution, ContextAndScope> executionVirtualField;
 
   public TracingJobExecutionListener(
-      ContextStore<JobExecution, ContextAndScope> executionContextStore) {
-    this.executionContextStore = executionContextStore;
+      VirtualField<JobExecution, ContextAndScope> executionVirtualField) {
+    this.executionVirtualField = executionVirtualField;
   }
 
   @Override
   public void beforeJob(JobExecution jobExecution) {
-    Context context = tracer().startSpan(jobExecution);
+    Context parentContext = currentContext();
+    if (!jobInstrumenter().shouldStart(parentContext, jobExecution)) {
+      return;
+    }
+
+    Context context = jobInstrumenter().start(parentContext, jobExecution);
     // beforeJob & afterJob always execute on the same thread
     Scope scope = context.makeCurrent();
-    executionContextStore.put(jobExecution, new ContextAndScope(context, scope));
+    executionVirtualField.set(jobExecution, new ContextAndScope(context, scope));
   }
 
   @Override
   public void afterJob(JobExecution jobExecution) {
-    ContextAndScope contextAndScope = executionContextStore.get(jobExecution);
-    if (contextAndScope != null) {
-      executionContextStore.put(jobExecution, null);
-      contextAndScope.closeScope();
-      tracer().end(contextAndScope.getContext());
+    ContextAndScope contextAndScope = executionVirtualField.get(jobExecution);
+    if (contextAndScope == null) {
+      return;
     }
+    executionVirtualField.set(jobExecution, null);
+    contextAndScope.closeScope();
+    jobInstrumenter().end(contextAndScope.getContext(), jobExecution, null, null);
   }
 
   @Override

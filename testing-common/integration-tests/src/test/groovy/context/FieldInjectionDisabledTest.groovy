@@ -7,8 +7,9 @@ package context
 
 import io.opentelemetry.instrumentation.test.AgentInstrumentationSpecification
 import io.opentelemetry.javaagent.testing.common.TestAgentListenerAccess
-import java.lang.reflect.Field
 import library.DisabledKeyClass
+
+import java.lang.reflect.Field
 
 // this test is run using:
 //   -Dotel.javaagent.experimental.field-injection.enabled=false
@@ -36,7 +37,7 @@ class FieldInjectionDisabledTest extends AgentInstrumentationSpecification {
     boolean hasMarkerInterface = false
     boolean hasAccessorInterface = false
     for (Class inter : keyClass.getInterfaces()) {
-      if (inter.getName() == 'io.opentelemetry.javaagent.bootstrap.FieldBackedContextStoreAppliedMarker') {
+      if (inter.getName() == 'io.opentelemetry.javaagent.bootstrap.VirtualFieldInstalledMarker') {
         hasMarkerInterface = true
       }
       if (inter.getName().startsWith('io.opentelemetry.javaagent.bootstrap.instrumentation.context.FieldBackedProvider$ContextAccessor')) {

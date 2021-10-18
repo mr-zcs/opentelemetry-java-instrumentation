@@ -14,8 +14,8 @@ import io.opentelemetry.context.Scope;
 import io.opentelemetry.instrumentation.api.caching.Cache;
 
 public final class FutureListenerWrappers {
-  // Instead of ContextStore use Cache with weak keys and weak values to store link between original
-  // listener and wrapper. ContextStore works fine when wrapper is stored in a field on original
+  // Instead of VirtualField use Cache with weak keys and weak values to store link between original
+  // listener and wrapper. VirtualField works fine when wrapper is stored in a field on original
   // listener, but when listener class is a lambda instead of field it gets stored in a map with
   // weak keys where original listener is key and wrapper is value. As wrapper has a strong
   // reference to original listener this causes a memory leak.
@@ -26,13 +26,24 @@ public final class FutureListenerWrappers {
           GenericFutureListener<? extends Future<?>>, GenericFutureListener<? extends Future<?>>>
       wrappers = Cache.newBuilder().setWeakKeys().setWeakValues().build();
 
+  private static final ClassValue<Boolean> shouldWrap =
+      new ClassValue<Boolean>() {
+        @Override
+        protected Boolean computeValue(Class<?> type) {
+          // we only want to wrap user callbacks
+          String className = type.getName();
+          return !className.startsWith("io.opentelemetry.javaagent.")
+              && !className.startsWith("io.netty.");
+        }
+      };
+
+  public static boolean shouldWrap(GenericFutureListener<? extends Future<?>> listener) {
+    return shouldWrap.get(listener.getClass());
+  }
+
   @SuppressWarnings("unchecked")
   public static GenericFutureListener<?> wrap(
       Context context, GenericFutureListener<? extends Future<?>> delegate) {
-    if (delegate instanceof WrappedFutureListener
-        || delegate instanceof WrappedProgressiveFutureListener) {
-      return delegate;
-    }
     return wrappers.computeIfAbsent(
         delegate,
         key -> {

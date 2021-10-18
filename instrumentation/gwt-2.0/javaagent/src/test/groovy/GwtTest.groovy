@@ -8,17 +8,18 @@ import io.opentelemetry.instrumentation.test.AgentInstrumentationSpecification
 import io.opentelemetry.instrumentation.test.asserts.TraceAssert
 import io.opentelemetry.instrumentation.test.base.HttpServerTestTrait
 import io.opentelemetry.semconv.trace.attributes.SemanticAttributes
-import java.util.concurrent.TimeUnit
 import org.eclipse.jetty.server.Server
 import org.eclipse.jetty.util.resource.Resource
 import org.eclipse.jetty.webapp.WebAppContext
-import org.openqa.selenium.firefox.FirefoxOptions
+import org.openqa.selenium.chrome.ChromeOptions
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import org.testcontainers.Testcontainers
 import org.testcontainers.containers.BrowserWebDriverContainer
 import org.testcontainers.containers.output.Slf4jLogConsumer
 import spock.lang.Shared
+
+import java.util.concurrent.TimeUnit
 
 class GwtTest extends AgentInstrumentationSpecification implements HttpServerTestTrait<Server> {
   private static final Logger logger = LoggerFactory.getLogger(GwtTest)
@@ -53,7 +54,7 @@ class GwtTest extends AgentInstrumentationSpecification implements HttpServerTes
     Testcontainers.exposeHostPorts(port)
 
     browser = new BrowserWebDriverContainer<>()
-      .withCapabilities(new FirefoxOptions())
+      .withCapabilities(new ChromeOptions())
       .withLogConsumer(new Slf4jLogConsumer(logger))
     browser.start()
 

@@ -43,13 +43,13 @@ dependencies {
 
 tasks {
   test {
-    inputs.files(project(":javaagent").tasks.getByName("fullJavaagentJar").outputs.files)
+    inputs.files(project(":javaagent").tasks.getByName("shadowJar").outputs.files)
 
     testLogging.showStandardStreams = true
 
     // TODO investigate why smoke tests occasionally hang forever
     //  this needs to be long enough so that smoke tests that are just running slow don"t time out
-    timeout.set(Duration.ofMinutes(45))
+    timeout.set(Duration.ofMinutes(60))
 
     // We enable/disable smoke tests based on the java version requests
     // In addition to that we disable them on normal test task to only run when explicitly requested.
@@ -78,7 +78,7 @@ tasks {
       }
     }
 
-    val shadowTask = project(":javaagent").tasks.named<ShadowJar>("fullJavaagentJar").get()
+    val shadowTask = project(":javaagent").tasks.named<ShadowJar>("shadowJar").get()
     inputs.files(layout.files(shadowTask))
 
     doFirst {

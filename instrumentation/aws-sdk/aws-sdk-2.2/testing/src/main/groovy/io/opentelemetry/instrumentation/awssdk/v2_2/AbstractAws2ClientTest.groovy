@@ -5,19 +5,12 @@
 
 package io.opentelemetry.instrumentation.awssdk.v2_2
 
-import static com.google.common.collect.ImmutableMap.of
-import static io.opentelemetry.api.trace.SpanKind.CLIENT
-import static io.opentelemetry.api.trace.StatusCode.ERROR
-import static io.opentelemetry.semconv.trace.attributes.SemanticAttributes.NetTransportValues.IP_TCP
-
 import io.opentelemetry.instrumentation.test.InstrumentationSpecification
 import io.opentelemetry.semconv.trace.attributes.SemanticAttributes
 import io.opentelemetry.testing.internal.armeria.common.HttpResponse
 import io.opentelemetry.testing.internal.armeria.common.HttpStatus
 import io.opentelemetry.testing.internal.armeria.common.MediaType
 import io.opentelemetry.testing.internal.armeria.testing.junit5.server.mock.MockWebServerExtension
-import java.time.Duration
-import java.util.concurrent.Future
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider
 import software.amazon.awssdk.core.ResponseInputStream
@@ -58,6 +51,14 @@ import software.amazon.awssdk.services.sqs.model.CreateQueueRequest
 import software.amazon.awssdk.services.sqs.model.SendMessageRequest
 import spock.lang.Shared
 import spock.lang.Unroll
+
+import java.time.Duration
+import java.util.concurrent.Future
+
+import static com.google.common.collect.ImmutableMap.of
+import static io.opentelemetry.api.trace.SpanKind.CLIENT
+import static io.opentelemetry.api.trace.StatusCode.ERROR
+import static io.opentelemetry.semconv.trace.attributes.SemanticAttributes.NetTransportValues.IP_TCP
 
 @Unroll
 abstract class AbstractAws2ClientTest extends InstrumentationSpecification {
@@ -169,7 +170,6 @@ abstract class AbstractAws2ClientTest extends InstrumentationSpecification {
             "aws.requestId" "$requestId"
             "aws.table.name" "sometable"
             "${SemanticAttributes.DB_SYSTEM.key}" "dynamodb"
-            "${SemanticAttributes.DB_NAME.key}" "sometable"
             "${SemanticAttributes.DB_OPERATION.key}" "CreateTable"
             "aws.dynamodb.global_secondary_indexes" "[{\"IndexName\":\"globalIndex\",\"KeySchema\":[{\"AttributeName\":\"attribute\"}],\"ProvisionedThroughput\":{\"ReadCapacityUnits\":10,\"WriteCapacityUnits\":12}},{\"IndexName\":\"globalIndexSecondary\",\"KeySchema\":[{\"AttributeName\":\"attributeSecondary\"}],\"ProvisionedThroughput\":{\"ReadCapacityUnits\":7,\"WriteCapacityUnits\":8}}]"
             "aws.dynamodb.provisioned_throughput.read_capacity_units" "1"
@@ -205,7 +205,6 @@ abstract class AbstractAws2ClientTest extends InstrumentationSpecification {
             "aws.requestId" "$requestId"
             "aws.table.name" "sometable"
             "${SemanticAttributes.DB_SYSTEM.key}" "dynamodb"
-            "${SemanticAttributes.DB_NAME.key}" "sometable"
             "${SemanticAttributes.DB_OPERATION.key}" "Query"
             "aws.dynamodb.limit" "10"
             "aws.dynamodb.select" "ALL_ATTRIBUTES"
@@ -240,7 +239,6 @@ abstract class AbstractAws2ClientTest extends InstrumentationSpecification {
             "aws.requestId" "$requestId"
             "aws.table.name" "sometable"
             "${SemanticAttributes.DB_SYSTEM.key}" "dynamodb"
-            "${SemanticAttributes.DB_NAME.key}" "sometable"
             "${SemanticAttributes.DB_OPERATION.key}" "${operation}"
           }
         }

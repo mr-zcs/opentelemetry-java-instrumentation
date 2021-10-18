@@ -5,13 +5,8 @@
 
 package springdata
 
-import static io.opentelemetry.api.trace.SpanKind.CLIENT
-import static io.opentelemetry.api.trace.StatusCode.ERROR
-import static org.elasticsearch.cluster.ClusterName.CLUSTER_NAME_SETTING
-
 import io.opentelemetry.instrumentation.test.AgentInstrumentationSpecification
 import io.opentelemetry.semconv.trace.attributes.SemanticAttributes
-import java.util.concurrent.atomic.AtomicLong
 import org.elasticsearch.action.admin.cluster.settings.ClusterUpdateSettingsRequest
 import org.elasticsearch.action.search.SearchResponse
 import org.elasticsearch.common.io.FileSystemUtils
@@ -29,6 +24,12 @@ import org.springframework.data.elasticsearch.core.query.IndexQueryBuilder
 import org.springframework.data.elasticsearch.core.query.NativeSearchQuery
 import org.springframework.data.elasticsearch.core.query.NativeSearchQueryBuilder
 import spock.lang.Shared
+
+import java.util.concurrent.atomic.AtomicLong
+
+import static io.opentelemetry.api.trace.SpanKind.CLIENT
+import static io.opentelemetry.api.trace.StatusCode.ERROR
+import static org.elasticsearch.cluster.ClusterName.CLUSTER_NAME_SETTING
 
 class Elasticsearch53SpringTemplateTest extends AgentInstrumentationSpecification {
   public static final long TIMEOUT = 10000 // 10 seconds
@@ -179,7 +180,7 @@ class Elasticsearch53SpringTemplateTest extends AgentInstrumentationSpecificatio
           }
         }
       }
-      trace(3, 2) {
+      trace(3, 1) {
         span(0) {
           name "IndexAction"
           kind CLIENT
@@ -195,17 +196,6 @@ class Elasticsearch53SpringTemplateTest extends AgentInstrumentationSpecificatio
             "elasticsearch.shard.replication.failed" 0
             "elasticsearch.shard.replication.successful" 1
             "elasticsearch.shard.replication.total" 2
-          }
-        }
-        span(1) {
-          name "PutMappingAction"
-          kind CLIENT
-          childOf span(0)
-          attributes {
-            "${SemanticAttributes.DB_SYSTEM.key}" "elasticsearch"
-            "${SemanticAttributes.DB_OPERATION.key}" "PutMappingAction"
-            "elasticsearch.action" "PutMappingAction"
-            "elasticsearch.request" "PutMappingRequest"
           }
         }
       }

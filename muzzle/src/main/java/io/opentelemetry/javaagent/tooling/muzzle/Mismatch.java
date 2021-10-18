@@ -6,11 +6,11 @@
 package io.opentelemetry.javaagent.tooling.muzzle;
 
 import io.opentelemetry.javaagent.extension.instrumentation.InstrumentationModule;
-import io.opentelemetry.javaagent.extension.muzzle.ClassRef;
-import io.opentelemetry.javaagent.extension.muzzle.FieldRef;
-import io.opentelemetry.javaagent.extension.muzzle.Flag;
-import io.opentelemetry.javaagent.extension.muzzle.MethodRef;
-import io.opentelemetry.javaagent.extension.muzzle.Source;
+import io.opentelemetry.javaagent.tooling.muzzle.references.ClassRef;
+import io.opentelemetry.javaagent.tooling.muzzle.references.FieldRef;
+import io.opentelemetry.javaagent.tooling.muzzle.references.Flag;
+import io.opentelemetry.javaagent.tooling.muzzle.references.MethodRef;
+import io.opentelemetry.javaagent.tooling.muzzle.references.Source;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.util.Collection;
@@ -185,8 +185,8 @@ public abstract class Mismatch {
   }
 
   /**
-   * Represents failure to inject {@link InstrumentationModule#getMuzzleHelperClassNames()} into
-   * some classloader.
+   * Represents failure to inject {@link InstrumentationModuleMuzzle#getMuzzleHelperClassNames()}
+   * into some classloader.
    */
   public static class HelperClassesInjectionError extends Mismatch {
 

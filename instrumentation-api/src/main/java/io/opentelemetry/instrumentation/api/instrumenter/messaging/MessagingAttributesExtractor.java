@@ -8,7 +8,7 @@ package io.opentelemetry.instrumentation.api.instrumenter.messaging;
 import io.opentelemetry.api.common.AttributesBuilder;
 import io.opentelemetry.instrumentation.api.instrumenter.AttributesExtractor;
 import io.opentelemetry.semconv.trace.attributes.SemanticAttributes;
-import org.checkerframework.checker.nullness.qual.Nullable;
+import javax.annotation.Nullable;
 
 /**
  * Extractor of <a
@@ -20,11 +20,11 @@ import org.checkerframework.checker.nullness.qual.Nullable;
  * best compliance with the OpenTelemetry specification.
  */
 public abstract class MessagingAttributesExtractor<REQUEST, RESPONSE>
-    extends AttributesExtractor<REQUEST, RESPONSE> {
+    implements AttributesExtractor<REQUEST, RESPONSE> {
   public static final String TEMP_DESTINATION_NAME = "(temporary)";
 
   @Override
-  protected final void onStart(AttributesBuilder attributes, REQUEST request) {
+  public final void onStart(AttributesBuilder attributes, REQUEST request) {
     set(attributes, SemanticAttributes.MESSAGING_SYSTEM, system(request));
     set(attributes, SemanticAttributes.MESSAGING_DESTINATION_KIND, destinationKind(request));
     boolean isTemporaryDestination = temporaryDestination(request);
@@ -46,17 +46,22 @@ public abstract class MessagingAttributesExtractor<REQUEST, RESPONSE>
         attributes,
         SemanticAttributes.MESSAGING_MESSAGE_PAYLOAD_COMPRESSED_SIZE_BYTES,
         messagePayloadCompressedSize(request));
-    MessageOperation operation = operation(request);
+    MessageOperation operation = operation();
     if (operation == MessageOperation.RECEIVE || operation == MessageOperation.PROCESS) {
       set(attributes, SemanticAttributes.MESSAGING_OPERATION, operation.operationName());
     }
   }
 
   @Override
-  protected final void onEnd(
-      AttributesBuilder attributes, REQUEST request, @Nullable RESPONSE response) {
+  public final void onEnd(
+      AttributesBuilder attributes,
+      REQUEST request,
+      @Nullable RESPONSE response,
+      @Nullable Throwable error) {
     set(attributes, SemanticAttributes.MESSAGING_MESSAGE_ID, messageId(request, response));
   }
+
+  public abstract MessageOperation operation();
 
   @Nullable
   protected abstract String system(REQUEST request);
@@ -86,9 +91,6 @@ public abstract class MessagingAttributesExtractor<REQUEST, RESPONSE>
 
   @Nullable
   protected abstract Long messagePayloadCompressedSize(REQUEST request);
-
-  @Nullable
-  protected abstract MessageOperation operation(REQUEST request);
 
   @Nullable
   protected abstract String messageId(REQUEST request, @Nullable RESPONSE response);

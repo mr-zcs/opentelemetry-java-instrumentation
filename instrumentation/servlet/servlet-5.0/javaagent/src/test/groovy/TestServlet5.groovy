@@ -3,13 +3,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import static io.opentelemetry.instrumentation.test.base.HttpServerTest.ServerEndpoint.ERROR
-import static io.opentelemetry.instrumentation.test.base.HttpServerTest.ServerEndpoint.EXCEPTION
-import static io.opentelemetry.instrumentation.test.base.HttpServerTest.ServerEndpoint.INDEXED_CHILD
-import static io.opentelemetry.instrumentation.test.base.HttpServerTest.ServerEndpoint.QUERY_PARAM
-import static io.opentelemetry.instrumentation.test.base.HttpServerTest.ServerEndpoint.REDIRECT
-import static io.opentelemetry.instrumentation.test.base.HttpServerTest.ServerEndpoint.SUCCESS
-
 import io.opentelemetry.instrumentation.test.base.HttpServerTest
 import jakarta.servlet.RequestDispatcher
 import jakarta.servlet.ServletException
@@ -17,7 +10,16 @@ import jakarta.servlet.annotation.WebServlet
 import jakarta.servlet.http.HttpServlet
 import jakarta.servlet.http.HttpServletRequest
 import jakarta.servlet.http.HttpServletResponse
+
 import java.util.concurrent.CountDownLatch
+
+import static io.opentelemetry.instrumentation.test.base.HttpServerTest.ServerEndpoint.CAPTURE_HEADERS
+import static io.opentelemetry.instrumentation.test.base.HttpServerTest.ServerEndpoint.ERROR
+import static io.opentelemetry.instrumentation.test.base.HttpServerTest.ServerEndpoint.EXCEPTION
+import static io.opentelemetry.instrumentation.test.base.HttpServerTest.ServerEndpoint.INDEXED_CHILD
+import static io.opentelemetry.instrumentation.test.base.HttpServerTest.ServerEndpoint.QUERY_PARAM
+import static io.opentelemetry.instrumentation.test.base.HttpServerTest.ServerEndpoint.REDIRECT
+import static io.opentelemetry.instrumentation.test.base.HttpServerTest.ServerEndpoint.SUCCESS
 
 class TestServlet5 {
 
@@ -47,6 +49,11 @@ class TestServlet5 {
             break
           case REDIRECT:
             resp.sendRedirect(endpoint.body)
+            break
+          case CAPTURE_HEADERS:
+            resp.setHeader("X-Test-Response", req.getHeader("X-Test-Request"))
+            resp.status = endpoint.status
+            resp.writer.print(endpoint.body)
             break
           case ERROR:
             resp.sendError(endpoint.status, endpoint.body)
@@ -87,6 +94,12 @@ class TestServlet5 {
                 break
               case REDIRECT:
                 resp.sendRedirect(endpoint.body)
+                context.complete()
+                break
+              case CAPTURE_HEADERS:
+                resp.setHeader("X-Test-Response", req.getHeader("X-Test-Request"))
+                resp.status = endpoint.status
+                resp.writer.print(endpoint.body)
                 context.complete()
                 break
               case ERROR:
@@ -134,6 +147,11 @@ class TestServlet5 {
               break
             case REDIRECT:
               resp.sendRedirect(endpoint.body)
+              break
+            case CAPTURE_HEADERS:
+              resp.setHeader("X-Test-Response", req.getHeader("X-Test-Request"))
+              resp.status = endpoint.status
+              resp.writer.print(endpoint.body)
               break
             case ERROR:
               resp.sendError(endpoint.status, endpoint.body)

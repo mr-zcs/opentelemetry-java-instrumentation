@@ -3,20 +3,22 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import io.opentelemetry.instrumentation.test.asserts.TraceAssert
+import org.eclipse.jetty.server.Server
+import org.eclipse.jetty.server.handler.ErrorHandler
+import org.eclipse.jetty.servlet.ServletContextHandler
+
+import javax.servlet.Servlet
+import javax.servlet.ServletException
+import javax.servlet.http.HttpServletRequest
+
 import static io.opentelemetry.instrumentation.test.base.HttpServerTest.ServerEndpoint.AUTH_REQUIRED
+import static io.opentelemetry.instrumentation.test.base.HttpServerTest.ServerEndpoint.CAPTURE_HEADERS
 import static io.opentelemetry.instrumentation.test.base.HttpServerTest.ServerEndpoint.ERROR
 import static io.opentelemetry.instrumentation.test.base.HttpServerTest.ServerEndpoint.EXCEPTION
 import static io.opentelemetry.instrumentation.test.base.HttpServerTest.ServerEndpoint.QUERY_PARAM
 import static io.opentelemetry.instrumentation.test.base.HttpServerTest.ServerEndpoint.REDIRECT
 import static io.opentelemetry.instrumentation.test.base.HttpServerTest.ServerEndpoint.SUCCESS
-
-import io.opentelemetry.instrumentation.test.asserts.TraceAssert
-import javax.servlet.Servlet
-import javax.servlet.ServletException
-import javax.servlet.http.HttpServletRequest
-import org.eclipse.jetty.server.Server
-import org.eclipse.jetty.server.handler.ErrorHandler
-import org.eclipse.jetty.servlet.ServletContextHandler
 
 abstract class JettyServlet3Test extends AbstractServlet3Test<Server, ServletContextHandler> {
 
@@ -188,6 +190,7 @@ class JettyServlet3TestForward extends JettyDispatchTest {
     addServlet(context, "/dispatch" + ERROR.path, RequestDispatcherServlet.Forward)
     addServlet(context, "/dispatch" + EXCEPTION.path, RequestDispatcherServlet.Forward)
     addServlet(context, "/dispatch" + AUTH_REQUIRED.path, RequestDispatcherServlet.Forward)
+    addServlet(context, "/dispatch" + CAPTURE_HEADERS.path, RequestDispatcherServlet.Forward)
   }
 }
 
@@ -199,6 +202,11 @@ class JettyServlet3TestInclude extends JettyDispatchTest {
 
   @Override
   boolean testRedirect() {
+    false
+  }
+
+  @Override
+  boolean testCapturedHttpHeaders() {
     false
   }
 
@@ -237,6 +245,7 @@ class JettyServlet3TestDispatchImmediate extends JettyDispatchTest {
     addServlet(context, "/dispatch" + EXCEPTION.path, TestServlet3.DispatchImmediate)
     addServlet(context, "/dispatch" + REDIRECT.path, TestServlet3.DispatchImmediate)
     addServlet(context, "/dispatch" + AUTH_REQUIRED.path, TestServlet3.DispatchImmediate)
+    addServlet(context, "/dispatch" + CAPTURE_HEADERS.path, TestServlet3.DispatchImmediate)
     addServlet(context, "/dispatch/recursive", TestServlet3.DispatchRecursive)
   }
 
@@ -263,6 +272,7 @@ class JettyServlet3TestDispatchAsync extends JettyDispatchTest {
     addServlet(context, "/dispatch" + EXCEPTION.path, TestServlet3.DispatchAsync)
     addServlet(context, "/dispatch" + REDIRECT.path, TestServlet3.DispatchAsync)
     addServlet(context, "/dispatch" + AUTH_REQUIRED.path, TestServlet3.DispatchAsync)
+    addServlet(context, "/dispatch" + CAPTURE_HEADERS.path, TestServlet3.DispatchAsync)
     addServlet(context, "/dispatch/recursive", TestServlet3.DispatchRecursive)
   }
 

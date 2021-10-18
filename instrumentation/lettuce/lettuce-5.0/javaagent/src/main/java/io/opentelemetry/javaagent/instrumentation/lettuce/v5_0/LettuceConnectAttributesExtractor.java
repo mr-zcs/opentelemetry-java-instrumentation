@@ -9,11 +9,12 @@ import io.lettuce.core.RedisURI;
 import io.opentelemetry.api.common.AttributesBuilder;
 import io.opentelemetry.instrumentation.api.instrumenter.AttributesExtractor;
 import io.opentelemetry.semconv.trace.attributes.SemanticAttributes;
+import javax.annotation.Nullable;
 
-final class LettuceConnectAttributesExtractor extends AttributesExtractor<RedisURI, Void> {
+final class LettuceConnectAttributesExtractor implements AttributesExtractor<RedisURI, Void> {
 
   @Override
-  protected void onStart(AttributesBuilder attributes, RedisURI redisUri) {
+  public void onStart(AttributesBuilder attributes, RedisURI redisUri) {
     attributes.put(SemanticAttributes.DB_SYSTEM, SemanticAttributes.DbSystemValues.REDIS);
 
     int database = redisUri.getDatabase();
@@ -23,5 +24,6 @@ final class LettuceConnectAttributesExtractor extends AttributesExtractor<RedisU
   }
 
   @Override
-  protected void onEnd(AttributesBuilder attributes, RedisURI redisUri, Void unused) {}
+  public void onEnd(
+      AttributesBuilder attributes, RedisURI redisUri, Void unused, @Nullable Throwable error) {}
 }

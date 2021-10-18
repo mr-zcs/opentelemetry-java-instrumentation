@@ -5,9 +5,7 @@
 
 package io.opentelemetry.javaagent.instrumentation.apachecamel
 
-import static io.opentelemetry.api.trace.SpanKind.CLIENT
-import static io.opentelemetry.api.trace.SpanKind.INTERNAL
-import static io.opentelemetry.api.trace.SpanKind.SERVER
+import static io.opentelemetry.semconv.trace.attributes.SemanticAttributes.NetTransportValues.IP_TCP
 
 import io.opentelemetry.instrumentation.test.AgentInstrumentationSpecification
 import io.opentelemetry.instrumentation.test.RetryOnAddressAlreadyInUseTrait
@@ -18,6 +16,10 @@ import org.apache.camel.ProducerTemplate
 import org.springframework.boot.SpringApplication
 import org.springframework.context.ConfigurableApplicationContext
 import spock.lang.Shared
+
+import static io.opentelemetry.api.trace.SpanKind.CLIENT
+import static io.opentelemetry.api.trace.SpanKind.INTERNAL
+import static io.opentelemetry.api.trace.SpanKind.SERVER
 
 class RestCamelTest extends AgentInstrumentationSpecification implements RetryOnAddressAlreadyInUseTrait {
 
@@ -87,14 +89,17 @@ class RestCamelTest extends AgentInstrumentationSpecification implements RetryOn
           kind SERVER
           parentSpanId(span(1).spanId)
           attributes {
-            "$SemanticAttributes.HTTP_URL.key" "http://localhost:$port/api/firstModule/unit/unitOne"
+            "$SemanticAttributes.HTTP_SCHEME.key" "http"
+            "$SemanticAttributes.HTTP_HOST.key" "localhost:$port"
+            "$SemanticAttributes.HTTP_TARGET.key" "/api/firstModule/unit/unitOne"
             "$SemanticAttributes.HTTP_STATUS_CODE.key" 200
-            "$SemanticAttributes.HTTP_CLIENT_IP.key" "127.0.0.1"
             "$SemanticAttributes.HTTP_USER_AGENT.key" String
             "$SemanticAttributes.HTTP_FLAVOR.key" "1.1"
             "$SemanticAttributes.HTTP_METHOD.key" "GET"
             "$SemanticAttributes.NET_PEER_IP.key" "127.0.0.1"
             "$SemanticAttributes.NET_PEER_PORT.key" Long
+            "${SemanticAttributes.HTTP_SERVER_NAME}" String
+            "${SemanticAttributes.NET_TRANSPORT}" IP_TCP
           }
         }
         it.span(3) {

@@ -3,9 +3,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import static io.opentelemetry.api.trace.SpanKind.CLIENT
-import static io.opentelemetry.api.trace.StatusCode.ERROR
-
 import akka.actor.ActorSystem
 import akka.http.javadsl.Http
 import akka.http.javadsl.model.HttpMethods
@@ -17,8 +14,9 @@ import io.opentelemetry.instrumentation.test.AgentTestTrait
 import io.opentelemetry.instrumentation.test.base.HttpClientTest
 import io.opentelemetry.instrumentation.testing.junit.http.AbstractHttpClientTest
 import io.opentelemetry.instrumentation.testing.junit.http.SingleConnection
-import java.util.concurrent.TimeUnit
 import spock.lang.Shared
+
+import java.util.concurrent.TimeUnit
 
 class AkkaHttpClientInstrumentationTest extends HttpClientTest<HttpRequest> implements AgentTestTrait {
 
@@ -48,7 +46,7 @@ class AkkaHttpClientInstrumentationTest extends HttpClientTest<HttpRequest> impl
 
   @Override
   void sendRequestWithCallback(HttpRequest request, String method, URI uri, Map<String, String> headers, AbstractHttpClientTest.RequestResult requestResult) {
-    Http.get(system).singleRequest(request, materializer).whenComplete {response, throwable ->
+    Http.get(system).singleRequest(request, materializer).whenComplete { response, throwable ->
       if (throwable == null) {
         response.discardEntityBytes(materializer)
       }
@@ -68,23 +66,4 @@ class AkkaHttpClientInstrumentationTest extends HttpClientTest<HttpRequest> impl
     return null
   }
 
-  def "singleRequest exception trace"() {
-    when:
-    // Passing null causes NPE in singleRequest
-    Http.get(system).singleRequest(null, materializer)
-
-    then:
-    def e = thrown NullPointerException
-    assertTraces(1) {
-      trace(0, 1) {
-        span(0) {
-          hasNoParent()
-          name "HTTP request"
-          kind CLIENT
-          status ERROR
-          errorEvent(NullPointerException, e.getMessage())
-        }
-      }
-    }
-  }
 }

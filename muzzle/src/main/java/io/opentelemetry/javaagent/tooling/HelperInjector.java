@@ -24,13 +24,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
+import javax.annotation.Nullable;
 import net.bytebuddy.agent.builder.AgentBuilder.Transformer;
 import net.bytebuddy.description.type.TypeDescription;
 import net.bytebuddy.dynamic.ClassFileLocator;
 import net.bytebuddy.dynamic.DynamicType;
 import net.bytebuddy.dynamic.loading.ClassInjector;
 import net.bytebuddy.utility.JavaModule;
-import org.checkerframework.checker.nullness.qual.Nullable;
 
 /**
  * Injects instrumentation helper classes into the user's classloader.
@@ -222,6 +222,10 @@ public class HelperInjector implements Transformer {
 
   private Map<String, Class<?>> injectBootstrapClassLoader(Map<String, byte[]> classnameToBytes)
       throws IOException {
+    if (ClassInjector.UsingUnsafe.isAvailable()) {
+      return ClassInjector.UsingUnsafe.ofBootLoader().injectRaw(classnameToBytes);
+    }
+
     // Mar 2020: Since we're proactively cleaning up tempDirs, we cannot share dirs per thread.
     // If this proves expensive, we could do a per-process tempDir with
     // a reference count -- but for now, starting simple.

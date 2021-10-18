@@ -12,21 +12,19 @@ import static net.bytebuddy.matcher.ElementMatchers.not;
 
 import io.opentelemetry.javaagent.extension.instrumentation.InstrumentationModule;
 import io.opentelemetry.javaagent.extension.instrumentation.TypeInstrumentation;
-import io.opentelemetry.javaagent.instrumentation.api.InstrumentationContext;
 import io.opentelemetry.javaagent.tooling.HelperInjector;
 import io.opentelemetry.javaagent.tooling.TransformSafeLogger;
 import io.opentelemetry.javaagent.tooling.Utils;
 import io.opentelemetry.javaagent.tooling.bytebuddy.LoggingFailSafeMatcher;
-import io.opentelemetry.javaagent.tooling.context.FieldBackedProvider;
-import io.opentelemetry.javaagent.tooling.context.InstrumentationContextProvider;
-import io.opentelemetry.javaagent.tooling.context.NoopContextProvider;
+import io.opentelemetry.javaagent.tooling.field.VirtualFieldImplementationInstaller;
+import io.opentelemetry.javaagent.tooling.field.VirtualFieldImplementationInstallerFactory;
 import io.opentelemetry.javaagent.tooling.muzzle.HelperResourceBuilderImpl;
+import io.opentelemetry.javaagent.tooling.muzzle.InstrumentationModuleMuzzle;
 import io.opentelemetry.javaagent.tooling.muzzle.Mismatch;
 import io.opentelemetry.javaagent.tooling.muzzle.ReferenceMatcher;
 import java.lang.instrument.Instrumentation;
 import java.security.ProtectionDomain;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import net.bytebuddy.agent.builder.AgentBuilder;
 import net.bytebuddy.description.annotation.AnnotationSource;
@@ -40,12 +38,15 @@ public final class InstrumentationModuleInstaller {
   private static final TransformSafeLogger logger =
       TransformSafeLogger.getLogger(InstrumentationModule.class);
   private static final Logger muzzleLogger = LoggerFactory.getLogger("muzzleMatcher");
-  private final Instrumentation instrumentation;
 
   // Added here instead of AgentInstaller's ignores because it's relatively
   // expensive. https://github.com/DataDog/dd-trace-java/pull/1045
   public static final ElementMatcher.Junction<AnnotationSource> NOT_DECORATOR_MATCHER =
       not(isAnnotatedWith(named("javax.decorator.Decorator")));
+
+  private final Instrumentation instrumentation;
+  private final VirtualFieldImplementationInstallerFactory virtualFieldInstallerFactory =
+      new VirtualFieldImplementationInstallerFactory();
 
   public InstrumentationModuleInstaller(Instrumentation instrumentation) {
     this.instrumentation = instrumentation;
@@ -57,12 +58,9 @@ public final class InstrumentationModuleInstaller {
       logger.debug("Instrumentation {} is disabled", instrumentationModule.instrumentationName());
       return parentAgentBuilder;
     }
-    List<String> helperClassNames = instrumentationModule.getMuzzleHelperClassNames();
+    List<String> helperClassNames =
+        InstrumentationModuleMuzzle.getHelperClassNames(instrumentationModule);
     HelperResourceBuilderImpl helperResourceBuilder = new HelperResourceBuilderImpl();
-    List<String> helperResourceNames = instrumentationModule.helperResourceNames();
-    for (String helperResourceName : helperResourceNames) {
-      helperResourceBuilder.register(helperResourceName);
-    }
     instrumentationModule.registerHelperResources(helperResourceBuilder);
     List<TypeInstrumentation> typeInstrumentations = instrumentationModule.typeInstrumentations();
     if (typeInstrumentations.isEmpty()) {
@@ -77,7 +75,7 @@ public final class InstrumentationModuleInstaller {
 
     ElementMatcher.Junction<ClassLoader> moduleClassLoaderMatcher =
         instrumentationModule.classLoaderMatcher();
-    MuzzleMatcher muzzleMatcher = new MuzzleMatcher(instrumentationModule, helperClassNames);
+    MuzzleMatcher muzzleMatcher = new MuzzleMatcher(instrumentationModule);
     AgentBuilder.Transformer helperInjector =
         new HelperInjector(
             instrumentationModule.instrumentationName(),
@@ -85,8 +83,8 @@ public final class InstrumentationModuleInstaller {
             helperResourceBuilder.getResources(),
             Utils.getExtensionsClassLoader(),
             instrumentation);
-    InstrumentationContextProvider contextProvider =
-        createInstrumentationContextProvider(instrumentationModule);
+    VirtualFieldImplementationInstaller contextProvider =
+        virtualFieldInstallerFactory.create(instrumentationModule);
 
     AgentBuilder agentBuilder = parentAgentBuilder;
     for (TypeInstrumentation typeInstrumentation : typeInstrumentations) {
@@ -95,46 +93,26 @@ public final class InstrumentationModuleInstaller {
               .type(
                   new LoggingFailSafeMatcher<>(
                       typeInstrumentation.typeMatcher(),
-                      "Instrumentation type matcher unexpected exception: " + getClass().getName()),
+                      "Instrumentation type matcher unexpected exception: "
+                          + typeInstrumentation.typeMatcher()),
                   new LoggingFailSafeMatcher<>(
                       moduleClassLoaderMatcher.and(typeInstrumentation.classLoaderOptimization()),
                       "Instrumentation class loader matcher unexpected exception: "
-                          + getClass().getName()))
+                          + typeInstrumentation.classLoaderOptimization()))
               .and(NOT_DECORATOR_MATCHER)
               .and(muzzleMatcher)
               .transform(ConstantAdjuster.instance())
               .transform(helperInjector);
-      extendableAgentBuilder = contextProvider.instrumentationTransformer(extendableAgentBuilder);
+      extendableAgentBuilder = contextProvider.rewriteVirtualFieldsCalls(extendableAgentBuilder);
       TypeTransformerImpl typeTransformer = new TypeTransformerImpl(extendableAgentBuilder);
       typeInstrumentation.transform(typeTransformer);
       extendableAgentBuilder = typeTransformer.getAgentBuilder();
-      extendableAgentBuilder = contextProvider.additionalInstrumentation(extendableAgentBuilder);
+      extendableAgentBuilder = contextProvider.injectFields(extendableAgentBuilder);
 
       agentBuilder = extendableAgentBuilder;
     }
 
     return agentBuilder;
-  }
-
-  private static InstrumentationContextProvider createInstrumentationContextProvider(
-      InstrumentationModule instrumentationModule) {
-    Map<String, String> contextStore = instrumentationModule.getMuzzleContextStoreClasses();
-    if (!contextStore.isEmpty()) {
-      return FieldBackedProviderFactory.get(instrumentationModule.getClass(), contextStore);
-    } else {
-      return NoopContextProvider.INSTANCE;
-    }
-  }
-
-  private static class FieldBackedProviderFactory {
-    static {
-      InstrumentationContext.internalSetContextStoreSupplier(
-          (keyClass, contextClass) -> FieldBackedProvider.getContextStore(keyClass, contextClass));
-    }
-
-    static FieldBackedProvider get(Class<?> instrumenterClass, Map<String, String> contextStore) {
-      return new FieldBackedProvider(instrumenterClass, contextStore);
-    }
   }
 
   /**
@@ -144,14 +122,11 @@ public final class InstrumentationModuleInstaller {
    */
   private static class MuzzleMatcher implements AgentBuilder.RawMatcher {
     private final InstrumentationModule instrumentationModule;
-    private final List<String> helperClassNames;
     private final AtomicBoolean initialized = new AtomicBoolean(false);
     private volatile ReferenceMatcher referenceMatcher;
 
-    private MuzzleMatcher(
-        InstrumentationModule instrumentationModule, List<String> helperClassNames) {
+    private MuzzleMatcher(InstrumentationModule instrumentationModule) {
       this.instrumentationModule = instrumentationModule;
-      this.helperClassNames = helperClassNames;
     }
 
     @Override
@@ -198,11 +173,7 @@ public final class InstrumentationModuleInstaller {
     // during the agent setup
     private ReferenceMatcher getReferenceMatcher() {
       if (initialized.compareAndSet(false, true)) {
-        referenceMatcher =
-            new ReferenceMatcher(
-                helperClassNames,
-                instrumentationModule.getMuzzleReferences(),
-                instrumentationModule::isHelperClass);
+        referenceMatcher = ReferenceMatcher.of(instrumentationModule);
       }
       return referenceMatcher;
     }

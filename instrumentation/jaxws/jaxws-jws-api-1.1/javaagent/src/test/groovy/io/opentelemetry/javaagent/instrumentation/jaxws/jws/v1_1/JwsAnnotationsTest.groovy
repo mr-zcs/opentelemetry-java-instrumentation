@@ -7,9 +7,7 @@ package io.opentelemetry.javaagent.instrumentation.jaxws.jws.v1_1
 
 import io.opentelemetry.instrumentation.test.AgentInstrumentationSpecification
 import io.opentelemetry.semconv.trace.attributes.SemanticAttributes
-import io.opentelemetry.test.WebServiceClass
-import io.opentelemetry.test.WebServiceDefinitionInterface
-import io.opentelemetry.test.WebServiceFromInterface
+
 import java.lang.reflect.Proxy
 
 class JwsAnnotationsTest extends AgentInstrumentationSpecification {
@@ -26,7 +24,7 @@ class JwsAnnotationsTest extends AgentInstrumentationSpecification {
         span(0) {
           name "WebServiceClass.doSomethingPublic"
           attributes {
-            "${SemanticAttributes.CODE_NAMESPACE.key}" "io.opentelemetry.test.WebServiceClass"
+            "${SemanticAttributes.CODE_NAMESPACE.key}" "io.opentelemetry.javaagent.instrumentation.jaxws.jws.v1_1.WebServiceClass"
             "${SemanticAttributes.CODE_FUNCTION.key}" "doSomethingPublic"
           }
         }
@@ -46,7 +44,7 @@ class JwsAnnotationsTest extends AgentInstrumentationSpecification {
         span(0) {
           name "WebServiceFromInterface.partOfPublicInterface"
           attributes {
-            "${SemanticAttributes.CODE_NAMESPACE.key}" "io.opentelemetry.test.WebServiceFromInterface"
+            "${SemanticAttributes.CODE_NAMESPACE.key}" "io.opentelemetry.javaagent.instrumentation.jaxws.jws.v1_1.WebServiceFromInterface"
             "${SemanticAttributes.CODE_FUNCTION.key}" "partOfPublicInterface"
           }
         }
@@ -70,7 +68,7 @@ class JwsAnnotationsTest extends AgentInstrumentationSpecification {
         span(0) {
           name "WebServiceFromInterface.partOfPublicInterface"
           attributes {
-            "${SemanticAttributes.CODE_NAMESPACE.key}" "io.opentelemetry.test.WebServiceFromInterface"
+            "${SemanticAttributes.CODE_NAMESPACE.key}" "io.opentelemetry.javaagent.instrumentation.jaxws.jws.v1_1.WebServiceFromInterface"
             "${SemanticAttributes.CODE_FUNCTION.key}" "partOfPublicInterface"
           }
         }

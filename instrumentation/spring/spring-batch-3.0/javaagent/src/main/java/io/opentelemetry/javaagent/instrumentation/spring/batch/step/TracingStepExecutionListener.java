@@ -5,11 +5,12 @@
 
 package io.opentelemetry.javaagent.instrumentation.spring.batch.step;
 
-import static io.opentelemetry.javaagent.instrumentation.spring.batch.step.StepExecutionTracer.tracer;
+import static io.opentelemetry.javaagent.instrumentation.api.Java8BytecodeBridge.currentContext;
+import static io.opentelemetry.javaagent.instrumentation.spring.batch.step.StepSingletons.stepInstrumenter;
 
 import io.opentelemetry.context.Context;
 import io.opentelemetry.context.Scope;
-import io.opentelemetry.javaagent.instrumentation.api.ContextStore;
+import io.opentelemetry.instrumentation.api.field.VirtualField;
 import io.opentelemetry.javaagent.instrumentation.spring.batch.ContextAndScope;
 import org.springframework.batch.core.ExitStatus;
 import org.springframework.batch.core.StepExecution;
@@ -17,29 +18,36 @@ import org.springframework.batch.core.StepExecutionListener;
 import org.springframework.core.Ordered;
 
 public final class TracingStepExecutionListener implements StepExecutionListener, Ordered {
-  private final ContextStore<StepExecution, ContextAndScope> executionContextStore;
+  private final VirtualField<StepExecution, ContextAndScope> executionVirtualField;
 
   public TracingStepExecutionListener(
-      ContextStore<StepExecution, ContextAndScope> executionContextStore) {
-    this.executionContextStore = executionContextStore;
+      VirtualField<StepExecution, ContextAndScope> executionVirtualField) {
+    this.executionVirtualField = executionVirtualField;
   }
 
   @Override
   public void beforeStep(StepExecution stepExecution) {
-    Context context = tracer().startSpan(stepExecution);
+    Context parentContext = currentContext();
+    if (!stepInstrumenter().shouldStart(parentContext, stepExecution)) {
+      return;
+    }
+
+    Context context = stepInstrumenter().start(parentContext, stepExecution);
     // beforeStep & afterStep always execute on the same thread
     Scope scope = context.makeCurrent();
-    executionContextStore.put(stepExecution, new ContextAndScope(context, scope));
+    executionVirtualField.set(stepExecution, new ContextAndScope(context, scope));
   }
 
   @Override
   public ExitStatus afterStep(StepExecution stepExecution) {
-    ContextAndScope contextAndScope = executionContextStore.get(stepExecution);
-    if (contextAndScope != null) {
-      executionContextStore.put(stepExecution, null);
-      contextAndScope.closeScope();
-      tracer().end(contextAndScope.getContext());
+    ContextAndScope contextAndScope = executionVirtualField.get(stepExecution);
+    if (contextAndScope == null) {
+      return null;
     }
+
+    executionVirtualField.set(stepExecution, null);
+    contextAndScope.closeScope();
+    stepInstrumenter().end(contextAndScope.getContext(), stepExecution, null, null);
     return null;
   }
 

@@ -9,7 +9,7 @@ import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.SpanKind;
 import io.opentelemetry.context.Context;
 import io.opentelemetry.instrumentation.api.instrumenter.SpanKey;
-import org.checkerframework.checker.nullness.qual.Nullable;
+import javax.annotation.Nullable;
 
 /**
  * This class encapsulates the context key for storing the current {@link SpanKind#CONSUMER} span in
@@ -30,11 +30,11 @@ public final class ConsumerSpan {
    */
   @Nullable
   public static Span fromContextOrNull(Context context) {
-    return SpanKey.CONSUMER.fromContextOrNull(context);
+    return SpanKey.CONSUMER_PROCESS.fromContextOrNull(context);
   }
 
   public static Context with(Context context, Span consumerSpan) {
-    return SpanKey.CONSUMER.storeInContext(context, consumerSpan);
+    return SpanKey.CONSUMER_PROCESS.storeInContext(context, consumerSpan);
   }
 
   private ConsumerSpan() {}

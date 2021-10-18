@@ -5,14 +5,15 @@
 
 package io.opentelemetry.instrumentation.servlet.naming;
 
-import io.opentelemetry.instrumentation.api.servlet.MappingResolver;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import javax.annotation.Nullable;
 
-public abstract class ServletFilterMappingResolverFactory<FILTERREGISTRATION> {
+public abstract class ServletFilterMappingResolverFactory<FILTERREGISTRATION>
+    extends ServletMappingResolverFactory {
 
   protected abstract FILTERREGISTRATION getFilterRegistration();
 
@@ -24,10 +25,9 @@ public abstract class ServletFilterMappingResolverFactory<FILTERREGISTRATION> {
 
   protected abstract Collection<String> getServletMappings(String servletName);
 
-  // TODO(anuraaga): We currently treat null as no mappings, and empty as having a default mapping.
-  // Error prone is correctly flagging this behavior as error prone.
-  @SuppressWarnings("ReturnsNullCollection")
-  private Collection<String> getMappings() {
+  @Override
+  @Nullable
+  protected Mappings getMappings() {
     FILTERREGISTRATION filterRegistration = getFilterRegistration();
     if (filterRegistration == null) {
       return null;
@@ -52,18 +52,9 @@ public abstract class ServletFilterMappingResolverFactory<FILTERREGISTRATION> {
     }
 
     List<String> mappingsList = new ArrayList<>(mappings);
-    // sort longest mapping first
+    // sort the longest mapping first
     mappingsList.sort((s1, s2) -> s2.length() - s1.length());
 
-    return mappingsList;
-  }
-
-  public final MappingResolver create() {
-    Collection<String> mappings = getMappings();
-    if (mappings == null) {
-      return null;
-    }
-
-    return MappingResolver.build(mappings);
+    return new Mappings(mappingsList);
   }
 }

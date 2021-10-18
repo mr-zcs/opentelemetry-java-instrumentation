@@ -5,6 +5,15 @@
 
 package server
 
+import play.libs.concurrent.HttpExecution
+import play.mvc.Results
+import play.routing.RoutingDsl
+import play.server.Server
+
+import java.util.concurrent.CompletableFuture
+import java.util.function.Supplier
+
+import static io.opentelemetry.instrumentation.test.base.HttpServerTest.ServerEndpoint.CAPTURE_HEADERS
 import static io.opentelemetry.instrumentation.test.base.HttpServerTest.ServerEndpoint.ERROR
 import static io.opentelemetry.instrumentation.test.base.HttpServerTest.ServerEndpoint.EXCEPTION
 import static io.opentelemetry.instrumentation.test.base.HttpServerTest.ServerEndpoint.INDEXED_CHILD
@@ -12,13 +21,6 @@ import static io.opentelemetry.instrumentation.test.base.HttpServerTest.ServerEn
 import static io.opentelemetry.instrumentation.test.base.HttpServerTest.ServerEndpoint.REDIRECT
 import static io.opentelemetry.instrumentation.test.base.HttpServerTest.ServerEndpoint.SUCCESS
 import static play.mvc.Http.Context.Implicit.request
-
-import java.util.concurrent.CompletableFuture
-import java.util.function.Supplier
-import play.libs.concurrent.HttpExecution
-import play.mvc.Results
-import play.routing.RoutingDsl
-import play.server.Server
 
 class PlayAsyncServerTest extends PlayServerTest {
   @Override
@@ -51,6 +53,14 @@ class PlayAsyncServerTest extends PlayServerTest {
         CompletableFuture.supplyAsync({
           controller(REDIRECT) {
             Results.found(REDIRECT.getBody())
+          }
+        }, HttpExecution.defaultContext())
+      } as Supplier)
+        .GET(CAPTURE_HEADERS.getPath()).routeAsync({
+        CompletableFuture.supplyAsync({
+          controller(CAPTURE_HEADERS) {
+            Results.status(CAPTURE_HEADERS.getStatus(), CAPTURE_HEADERS.getBody())
+              .withHeader("X-Test-Response", request().getHeader("X-Test-Request"))
           }
         }, HttpExecution.defaultContext())
       } as Supplier)

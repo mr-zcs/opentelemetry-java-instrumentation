@@ -3,10 +3,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import static io.opentelemetry.api.trace.SpanKind.INTERNAL
-import static io.opentelemetry.api.trace.SpanKind.SERVER
-import static io.opentelemetry.api.trace.StatusCode.ERROR
-
 import io.opentelemetry.instrumentation.test.AgentInstrumentationSpecification
 import io.opentelemetry.semconv.trace.attributes.SemanticAttributes
 import io.opentelemetry.testing.internal.armeria.client.ClientRequestContext
@@ -27,7 +23,10 @@ import server.FooModel
 import server.SpringWebFluxTestApplication
 import server.TestController
 import spock.lang.Unroll
-import util.SpringWebfluxTestUtil
+
+import static io.opentelemetry.api.trace.SpanKind.INTERNAL
+import static io.opentelemetry.api.trace.SpanKind.SERVER
+import static io.opentelemetry.api.trace.StatusCode.ERROR
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, classes = [SpringWebFluxTestApplication, ForceNettyAutoConfiguration])
 class SpringWebfluxTest extends AgentInstrumentationSpecification {
@@ -53,7 +52,7 @@ class SpringWebfluxTest extends AgentInstrumentationSpecification {
         // https://github.com/line/armeria/issues/2489
         @Override
         HttpResponse execute(HttpClient delegate, ClientRequestContext ctx, HttpRequest req) throws Exception {
-          return HttpResponse.from(delegate.execute(ctx, req).aggregate().thenApply {resp ->
+          return HttpResponse.from(delegate.execute(ctx, req).aggregate().thenApply { resp ->
             if (resp.status().isRedirection()) {
               return delegate.execute(ctx, HttpRequest.of(req.method(), resp.headers().get(HttpHeaderNames.LOCATION)))
             }
@@ -62,10 +61,6 @@ class SpringWebfluxTest extends AgentInstrumentationSpecification {
         }
       })
       .build()
-  }
-
-  def cleanup() {
-    SpringWebfluxTestUtil.waitForRequestsToComplete()
   }
 
   @Unroll
@@ -83,14 +78,15 @@ class SpringWebfluxTest extends AgentInstrumentationSpecification {
           kind SERVER
           hasNoParent()
           attributes {
+            "${SemanticAttributes.NET_PEER_NAME}" { it == null || it == "localhost" }
             "${SemanticAttributes.NET_PEER_IP.key}" "127.0.0.1"
             "${SemanticAttributes.NET_PEER_PORT.key}" Long
-            "${SemanticAttributes.HTTP_URL.key}" "http://localhost:$port$urlPath"
+            "${SemanticAttributes.HTTP_HOST}" { it == "localhost" || it == "localhost:${port}" }
+            "${SemanticAttributes.HTTP_TARGET}" urlPath
             "${SemanticAttributes.HTTP_METHOD.key}" "GET"
             "${SemanticAttributes.HTTP_STATUS_CODE.key}" 200
             "${SemanticAttributes.HTTP_FLAVOR.key}" "1.1"
             "${SemanticAttributes.HTTP_USER_AGENT.key}" String
-            "${SemanticAttributes.HTTP_CLIENT_IP.key}" "127.0.0.1"
           }
         }
         span(1) {
@@ -146,14 +142,15 @@ class SpringWebfluxTest extends AgentInstrumentationSpecification {
           kind SERVER
           hasNoParent()
           attributes {
+            "${SemanticAttributes.NET_PEER_NAME}" { it == null || it == "localhost" }
             "${SemanticAttributes.NET_PEER_IP.key}" "127.0.0.1"
             "${SemanticAttributes.NET_PEER_PORT.key}" Long
-            "${SemanticAttributes.HTTP_URL.key}" "http://localhost:$port$urlPath"
+            "${SemanticAttributes.HTTP_HOST}" { it == "localhost" || it == "localhost:${port}" }
+            "${SemanticAttributes.HTTP_TARGET}" urlPath
             "${SemanticAttributes.HTTP_METHOD.key}" "GET"
             "${SemanticAttributes.HTTP_STATUS_CODE.key}" 200
             "${SemanticAttributes.HTTP_FLAVOR.key}" "1.1"
             "${SemanticAttributes.HTTP_USER_AGENT.key}" String
-            "${SemanticAttributes.HTTP_CLIENT_IP.key}" "127.0.0.1"
           }
         }
         span(1) {
@@ -214,6 +211,7 @@ class SpringWebfluxTest extends AgentInstrumentationSpecification {
   merely wraps handler call into Mono and thus actual invocation of handler function happens later,
   when INTERNAL handler span has already finished. Thus, "tracedMethod" has SERVER Netty span as its parent.
    */
+
   def "Create span during handler function"() {
     when:
     def response = client.get(urlPath).aggregate().join()
@@ -228,14 +226,15 @@ class SpringWebfluxTest extends AgentInstrumentationSpecification {
           kind SERVER
           hasNoParent()
           attributes {
+            "${SemanticAttributes.NET_PEER_NAME}" { it == null || it == "localhost" }
             "${SemanticAttributes.NET_PEER_IP.key}" "127.0.0.1"
             "${SemanticAttributes.NET_PEER_PORT.key}" Long
-            "${SemanticAttributes.HTTP_URL.key}" "http://localhost:$port$urlPath"
+            "${SemanticAttributes.HTTP_HOST}" { it == "localhost" || it == "localhost:${port}" }
+            "${SemanticAttributes.HTTP_TARGET}" urlPath
             "${SemanticAttributes.HTTP_METHOD.key}" "GET"
             "${SemanticAttributes.HTTP_STATUS_CODE.key}" 200
             "${SemanticAttributes.HTTP_FLAVOR.key}" "1.1"
             "${SemanticAttributes.HTTP_USER_AGENT.key}" String
-            "${SemanticAttributes.HTTP_CLIENT_IP.key}" "127.0.0.1"
           }
         }
         span(1) {
@@ -289,14 +288,15 @@ class SpringWebfluxTest extends AgentInstrumentationSpecification {
           hasNoParent()
           status ERROR
           attributes {
+            "${SemanticAttributes.NET_PEER_NAME}" { it == null || it == "localhost" }
             "${SemanticAttributes.NET_PEER_IP.key}" "127.0.0.1"
             "${SemanticAttributes.NET_PEER_PORT.key}" Long
-            "${SemanticAttributes.HTTP_URL.key}" "http://localhost:$port/notfoundgreet"
+            "${SemanticAttributes.HTTP_HOST}" { it == "localhost" || it == "localhost:${port}" }
+            "${SemanticAttributes.HTTP_TARGET}" "/notfoundgreet"
             "${SemanticAttributes.HTTP_METHOD.key}" "GET"
             "${SemanticAttributes.HTTP_STATUS_CODE.key}" 404
             "${SemanticAttributes.HTTP_FLAVOR.key}" "1.1"
             "${SemanticAttributes.HTTP_USER_AGENT.key}" String
-            "${SemanticAttributes.HTTP_CLIENT_IP.key}" "127.0.0.1"
           }
         }
         span(1) {
@@ -329,14 +329,15 @@ class SpringWebfluxTest extends AgentInstrumentationSpecification {
           kind SERVER
           hasNoParent()
           attributes {
+            "${SemanticAttributes.NET_PEER_NAME}" { it == null || it == "localhost" }
             "${SemanticAttributes.NET_PEER_IP.key}" "127.0.0.1"
             "${SemanticAttributes.NET_PEER_PORT.key}" Long
-            "${SemanticAttributes.HTTP_URL.key}" "http://localhost:$port/echo"
+            "${SemanticAttributes.HTTP_HOST}" { it == "localhost" || it == "localhost:${port}" }
+            "${SemanticAttributes.HTTP_TARGET}" "/echo"
             "${SemanticAttributes.HTTP_METHOD.key}" "POST"
             "${SemanticAttributes.HTTP_STATUS_CODE.key}" 202
             "${SemanticAttributes.HTTP_FLAVOR.key}" "1.1"
             "${SemanticAttributes.HTTP_USER_AGENT.key}" String
-            "${SemanticAttributes.HTTP_CLIENT_IP.key}" "127.0.0.1"
           }
         }
         span(1) {
@@ -374,14 +375,15 @@ class SpringWebfluxTest extends AgentInstrumentationSpecification {
           status ERROR
           hasNoParent()
           attributes {
+            "${SemanticAttributes.NET_PEER_NAME}" { it == null || it == "localhost" }
             "${SemanticAttributes.NET_PEER_IP.key}" "127.0.0.1"
             "${SemanticAttributes.NET_PEER_PORT.key}" Long
-            "${SemanticAttributes.HTTP_URL.key}" "http://localhost:$port$urlPath"
+            "${SemanticAttributes.HTTP_HOST}" { it == "localhost" || it == "localhost:${port}" }
+            "${SemanticAttributes.HTTP_TARGET}" urlPath
             "${SemanticAttributes.HTTP_METHOD.key}" "GET"
             "${SemanticAttributes.HTTP_STATUS_CODE.key}" 500
             "${SemanticAttributes.HTTP_FLAVOR.key}" "1.1"
             "${SemanticAttributes.HTTP_USER_AGENT.key}" String
-            "${SemanticAttributes.HTTP_CLIENT_IP.key}" "127.0.0.1"
           }
         }
         span(1) {
@@ -421,9 +423,6 @@ class SpringWebfluxTest extends AgentInstrumentationSpecification {
   }
 
   def "Redirect test"() {
-    setup:
-    String finalUrl = "http://localhost:$port/double-greet"
-
     when:
     def response = client.get("/double-greet-redirect").aggregate().join()
 
@@ -437,14 +436,15 @@ class SpringWebfluxTest extends AgentInstrumentationSpecification {
           kind SERVER
           hasNoParent()
           attributes {
+            "${SemanticAttributes.NET_PEER_NAME}" { it == null || it == "localhost" }
             "${SemanticAttributes.NET_PEER_IP.key}" "127.0.0.1"
             "${SemanticAttributes.NET_PEER_PORT.key}" Long
-            "${SemanticAttributes.HTTP_URL.key}" "http://localhost:$port/double-greet-redirect"
+            "${SemanticAttributes.HTTP_HOST}" { it == "localhost" || it == "localhost:${port}" }
+            "${SemanticAttributes.HTTP_TARGET}" "/double-greet-redirect"
             "${SemanticAttributes.HTTP_METHOD.key}" "GET"
             "${SemanticAttributes.HTTP_STATUS_CODE.key}" 307
             "${SemanticAttributes.HTTP_FLAVOR.key}" "1.1"
             "${SemanticAttributes.HTTP_USER_AGENT.key}" String
-            "${SemanticAttributes.HTTP_CLIENT_IP.key}" "127.0.0.1"
           }
         }
         span(1) {
@@ -465,14 +465,15 @@ class SpringWebfluxTest extends AgentInstrumentationSpecification {
           kind SERVER
           hasNoParent()
           attributes {
+            "${SemanticAttributes.NET_PEER_NAME}" { it == null || it == "localhost" }
             "${SemanticAttributes.NET_PEER_IP.key}" "127.0.0.1"
             "${SemanticAttributes.NET_PEER_PORT.key}" Long
-            "${SemanticAttributes.HTTP_URL.key}" finalUrl
+            "${SemanticAttributes.HTTP_HOST}" { it == "localhost" || it == "localhost:${port}" }
+            "${SemanticAttributes.HTTP_TARGET}" "/double-greet"
             "${SemanticAttributes.HTTP_METHOD.key}" "GET"
             "${SemanticAttributes.HTTP_STATUS_CODE.key}" 200
             "${SemanticAttributes.HTTP_FLAVOR.key}" "1.1"
             "${SemanticAttributes.HTTP_USER_AGENT.key}" String
-            "${SemanticAttributes.HTTP_CLIENT_IP.key}" "127.0.0.1"
           }
         }
         span(1) {
@@ -493,7 +494,7 @@ class SpringWebfluxTest extends AgentInstrumentationSpecification {
   def "Multiple GETs to delaying route #testName"() {
     setup:
     def requestsCount = 50 // Should be more than 2x CPUs to fish out some bugs
-    def url = "http://localhost:$port$urlPath"
+
     when:
     def responses = (0..requestsCount - 1).collect { client.get(urlPath).aggregate().join() }
 
@@ -508,14 +509,15 @@ class SpringWebfluxTest extends AgentInstrumentationSpecification {
             kind SERVER
             hasNoParent()
             attributes {
+              "${SemanticAttributes.NET_PEER_NAME}" { it == null || it == "localhost" }
               "${SemanticAttributes.NET_PEER_IP.key}" "127.0.0.1"
               "${SemanticAttributes.NET_PEER_PORT.key}" Long
-              "${SemanticAttributes.HTTP_URL.key}" url
+              "${SemanticAttributes.HTTP_HOST}" { it == "localhost" || it == "localhost:${port}" }
+              "${SemanticAttributes.HTTP_TARGET}" urlPath
               "${SemanticAttributes.HTTP_METHOD.key}" "GET"
               "${SemanticAttributes.HTTP_STATUS_CODE.key}" 200
               "${SemanticAttributes.HTTP_FLAVOR.key}" "1.1"
               "${SemanticAttributes.HTTP_USER_AGENT.key}" String
-              "${SemanticAttributes.HTTP_CLIENT_IP.key}" "127.0.0.1"
             }
           }
           span(1) {

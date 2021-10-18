@@ -5,13 +5,7 @@
 
 package io.opentelemetry.instrumentation.armeria.v1_3
 
-import static io.opentelemetry.instrumentation.test.base.HttpServerTest.ServerEndpoint.ERROR
-import static io.opentelemetry.instrumentation.test.base.HttpServerTest.ServerEndpoint.EXCEPTION
-import static io.opentelemetry.instrumentation.test.base.HttpServerTest.ServerEndpoint.PATH_PARAM
-import static io.opentelemetry.instrumentation.test.base.HttpServerTest.ServerEndpoint.QUERY_PARAM
-import static io.opentelemetry.instrumentation.test.base.HttpServerTest.ServerEndpoint.REDIRECT
-import static io.opentelemetry.instrumentation.test.base.HttpServerTest.ServerEndpoint.SUCCESS
-
+import com.linecorp.armeria.common.HttpData
 import com.linecorp.armeria.common.HttpHeaderNames
 import com.linecorp.armeria.common.HttpRequest
 import com.linecorp.armeria.common.HttpResponse
@@ -28,7 +22,16 @@ import io.opentelemetry.api.common.AttributeKey
 import io.opentelemetry.api.trace.Span
 import io.opentelemetry.instrumentation.test.base.HttpServerTest
 import io.opentelemetry.semconv.trace.attributes.SemanticAttributes
+
 import java.util.function.Function
+
+import static io.opentelemetry.instrumentation.test.base.HttpServerTest.ServerEndpoint.CAPTURE_HEADERS
+import static io.opentelemetry.instrumentation.test.base.HttpServerTest.ServerEndpoint.ERROR
+import static io.opentelemetry.instrumentation.test.base.HttpServerTest.ServerEndpoint.EXCEPTION
+import static io.opentelemetry.instrumentation.test.base.HttpServerTest.ServerEndpoint.PATH_PARAM
+import static io.opentelemetry.instrumentation.test.base.HttpServerTest.ServerEndpoint.QUERY_PARAM
+import static io.opentelemetry.instrumentation.test.base.HttpServerTest.ServerEndpoint.REDIRECT
+import static io.opentelemetry.instrumentation.test.base.HttpServerTest.ServerEndpoint.SUCCESS
 
 abstract class AbstractArmeriaHttpServerTest extends HttpServerTest<Server> {
 
@@ -37,13 +40,10 @@ abstract class AbstractArmeriaHttpServerTest extends HttpServerTest<Server> {
   @Override
   List<AttributeKey<?>> extraAttributes() {
     [
-      SemanticAttributes.HTTP_HOST,
       SemanticAttributes.HTTP_REQUEST_CONTENT_LENGTH,
       SemanticAttributes.HTTP_RESPONSE_CONTENT_LENGTH,
       SemanticAttributes.HTTP_ROUTE,
-      SemanticAttributes.HTTP_SCHEME,
       SemanticAttributes.HTTP_SERVER_NAME,
-      SemanticAttributes.HTTP_TARGET,
       SemanticAttributes.NET_PEER_NAME,
       SemanticAttributes.NET_TRANSPORT
     ]
@@ -94,6 +94,16 @@ abstract class AbstractArmeriaHttpServerTest extends HttpServerTest<Server> {
     sb.service("/path/:id/param") { ctx, req ->
       controller(PATH_PARAM) {
         HttpResponse.of(HttpStatus.valueOf(PATH_PARAM.status), MediaType.PLAIN_TEXT_UTF_8, ctx.pathParam("id"))
+      }
+    }
+
+    sb.service("/captureHeaders") { ctx, req ->
+      controller(CAPTURE_HEADERS) {
+        HttpResponse.of(
+          ResponseHeaders.of(HttpStatus.valueOf(CAPTURE_HEADERS.status),
+            "X-Test-Response", req.headers().get("X-Test-Request"),
+            HttpHeaderNames.CONTENT_TYPE, MediaType.PLAIN_TEXT_UTF_8),
+          HttpData.ofUtf8(CAPTURE_HEADERS.body))
       }
     }
 

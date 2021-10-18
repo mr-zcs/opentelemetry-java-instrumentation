@@ -7,6 +7,9 @@ package io.opentelemetry.instrumentation.servlet.javax;
 
 import io.opentelemetry.instrumentation.servlet.ServletAccessor;
 import java.security.Principal;
+import java.util.Collections;
+import java.util.Enumeration;
+import java.util.List;
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServletRequest;
 
@@ -67,8 +70,24 @@ public abstract class JavaxServletAccessor<R> implements ServletAccessor<HttpSer
   }
 
   @Override
+  public String getRequestRemoteHost(HttpServletRequest httpServletRequest) {
+    return httpServletRequest.getRemoteHost();
+  }
+
+  @Override
   public String getRequestHeader(HttpServletRequest request, String name) {
     return request.getHeader(name);
+  }
+
+  @Override
+  public List<String> getRequestHeaderValues(HttpServletRequest request, String name) {
+    Enumeration<String> values = request.getHeaders(name);
+    return values == null ? Collections.emptyList() : Collections.list(values);
+  }
+
+  @Override
+  public Iterable<String> getRequestHeaderNames(HttpServletRequest httpServletRequest) {
+    return Collections.list(httpServletRequest.getHeaderNames());
   }
 
   @Override
@@ -84,6 +103,11 @@ public abstract class JavaxServletAccessor<R> implements ServletAccessor<HttpSer
   @Override
   public Principal getRequestUserPrincipal(HttpServletRequest request) {
     return request.getUserPrincipal();
+  }
+
+  @Override
+  public int getRequestContentLength(HttpServletRequest request) {
+    return request.getContentLength();
   }
 
   @Override

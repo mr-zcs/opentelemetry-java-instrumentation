@@ -3,8 +3,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import io.opentelemetry.api.GlobalOpenTelemetry
+import io.opentelemetry.api.trace.Span
 import io.opentelemetry.api.trace.SpanKind
 import io.opentelemetry.api.trace.StatusCode
+import io.opentelemetry.context.Scope
 import io.opentelemetry.instrumentation.reactor.TracedWithSpan
 import io.opentelemetry.instrumentation.test.AgentInstrumentationSpecification
 import reactor.core.publisher.Flux
@@ -40,7 +43,7 @@ class ReactorWithSpanInstrumentationTest extends AgentInstrumentationSpecificati
 
   def "should capture span for eventually completed Mono"() {
     setup:
-    def source = UnicastProcessor.<String>create()
+    def source = UnicastProcessor.<String> create()
     def mono = source.singleOrEmpty()
     def result = new TracedWithSpan()
       .mono(mono)
@@ -63,6 +66,134 @@ class ReactorWithSpanInstrumentationTest extends AgentInstrumentationSpecificati
           name "TracedWithSpan.mono"
           kind SpanKind.INTERNAL
           hasNoParent()
+          attributes {
+          }
+        }
+      }
+    }
+  }
+
+  def "should capture nested Mono spans"() {
+    setup:
+    def mono = Mono.defer({ ->
+      Span span = GlobalOpenTelemetry.getTracer("test").spanBuilder("inner-manual").startSpan()
+      span.end()
+      return Mono.just("Value")
+    })
+
+    def result = new TracedWithSpan()
+      .outer(mono)
+
+    StepVerifier.create(result)
+      .expectNext("Value")
+      .verifyComplete()
+
+    expect:
+    assertTraces(1) {
+      trace(0, 3) {
+        span(0) {
+          name "TracedWithSpan.outer"
+          kind SpanKind.INTERNAL
+          hasNoParent()
+          attributes {
+          }
+        }
+        span(1) {
+          name "TracedWithSpan.mono"
+          kind SpanKind.INTERNAL
+          childOf span(0)
+          attributes {
+          }
+        }
+        span(2) {
+          name "inner-manual"
+          kind SpanKind.INTERNAL
+          childOf span(1)
+          attributes {
+          }
+        }
+      }
+    }
+  }
+
+  def "should capture nested spans from current"() {
+    setup:
+    Span parent = GlobalOpenTelemetry.getTracer("test")
+      .spanBuilder("parent").startSpan()
+
+    Scope scope = parent.makeCurrent()
+
+    def result = new TracedWithSpan()
+      .mono(Mono.defer({ ->
+        Span inner = GlobalOpenTelemetry.getTracer("test").spanBuilder("inner-manual").startSpan()
+        inner.end()
+        return Mono.just("Value")
+      }))
+
+    StepVerifier.create(result)
+      .expectNext("Value")
+      .verifyComplete()
+
+    scope.close()
+    parent.end()
+
+    expect:
+    assertTraces(1) {
+      trace(0, 3) {
+        span(0) {
+          name "parent"
+          kind SpanKind.INTERNAL
+          hasNoParent()
+          attributes {
+          }
+        }
+        span(1) {
+          name "TracedWithSpan.mono"
+          kind SpanKind.INTERNAL
+          childOf span(0)
+          attributes {
+          }
+        }
+        span(2) {
+          name "inner-manual"
+          kind SpanKind.INTERNAL
+          childOf span(1)
+          attributes {
+          }
+        }
+      }
+    }
+  }
+
+  def "should capture nested Flux spans"() {
+    setup:
+    def mono = Flux.defer({ ->
+      Span span = GlobalOpenTelemetry.getTracer("test").spanBuilder("inner-manual").startSpan()
+      span.end()
+      return Flux.just("Value")
+    })
+
+    def result = new TracedWithSpan()
+      .flux(mono)
+
+    StepVerifier.create(result)
+      .expectNext("Value")
+      .verifyComplete()
+
+    expect:
+    assertTraces(1) {
+      trace(0, 2) {
+        span(0) {
+          name "TracedWithSpan.flux"
+          kind SpanKind.INTERNAL
+          hasNoParent()
+          attributes {
+          }
+        }
+        span(1) {
+          name "inner-manual"
+          kind SpanKind.INTERNAL
+          childOf span(0)
           attributes {
           }
         }
@@ -99,7 +230,7 @@ class ReactorWithSpanInstrumentationTest extends AgentInstrumentationSpecificati
   def "should capture span for eventually errored Mono"() {
     setup:
     def error = new IllegalArgumentException("Boom")
-    def source = UnicastProcessor.<String>create()
+    def source = UnicastProcessor.<String> create()
     def mono = source.singleOrEmpty()
     def result = new TracedWithSpan()
       .mono(mono)
@@ -132,7 +263,7 @@ class ReactorWithSpanInstrumentationTest extends AgentInstrumentationSpecificati
 
   def "should capture span for canceled Mono"() {
     setup:
-    def source = UnicastProcessor.<String>create()
+    def source = UnicastProcessor.<String> create()
     def mono = source.singleOrEmpty()
     def result = new TracedWithSpan()
       .mono(mono)
@@ -185,7 +316,7 @@ class ReactorWithSpanInstrumentationTest extends AgentInstrumentationSpecificati
 
   def "should capture span for eventually completed Flux"() {
     setup:
-    def source = UnicastProcessor.<String>create()
+    def source = UnicastProcessor.<String> create()
     def result = new TracedWithSpan()
       .flux(source)
     def verifier = StepVerifier.create(result)
@@ -243,7 +374,7 @@ class ReactorWithSpanInstrumentationTest extends AgentInstrumentationSpecificati
   def "should capture span for eventually errored Flux"() {
     setup:
     def error = new IllegalArgumentException("Boom")
-    def source = UnicastProcessor.<String>create()
+    def source = UnicastProcessor.<String> create()
     def result = new TracedWithSpan()
       .flux(source)
     def verifier = StepVerifier.create(result)
@@ -275,7 +406,7 @@ class ReactorWithSpanInstrumentationTest extends AgentInstrumentationSpecificati
   def "should capture span for canceled Flux"() {
     setup:
     def error = new IllegalArgumentException("Boom")
-    def source = UnicastProcessor.<String>create()
+    def source = UnicastProcessor.<String> create()
     def result = new TracedWithSpan()
       .flux(source)
     def verifier = StepVerifier.create(result)

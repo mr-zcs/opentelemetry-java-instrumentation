@@ -9,10 +9,11 @@ import static java.util.Collections.emptyList;
 import static java.util.Collections.singletonList;
 
 import io.opentelemetry.instrumentation.api.caching.Cache;
-import io.opentelemetry.javaagent.extension.muzzle.ClassRef;
-import io.opentelemetry.javaagent.extension.muzzle.FieldRef;
-import io.opentelemetry.javaagent.extension.muzzle.Flag;
-import io.opentelemetry.javaagent.extension.muzzle.MethodRef;
+import io.opentelemetry.javaagent.extension.instrumentation.InstrumentationModule;
+import io.opentelemetry.javaagent.tooling.muzzle.references.ClassRef;
+import io.opentelemetry.javaagent.tooling.muzzle.references.FieldRef;
+import io.opentelemetry.javaagent.tooling.muzzle.references.Flag;
+import io.opentelemetry.javaagent.tooling.muzzle.references.MethodRef;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
@@ -34,16 +35,22 @@ public final class ReferenceMatcher {
       Cache.newBuilder().setWeakKeys().build();
   private final Map<String, ClassRef> references;
   private final Set<String> helperClassNames;
-  private final InstrumentationClassPredicate instrumentationClassPredicate;
+  private final HelperClassPredicate helperClassPredicate;
 
-  public ReferenceMatcher(
+  public static ReferenceMatcher of(InstrumentationModule instrumentationModule) {
+    return new ReferenceMatcher(
+        InstrumentationModuleMuzzle.getHelperClassNames(instrumentationModule),
+        InstrumentationModuleMuzzle.getMuzzleReferences(instrumentationModule),
+        instrumentationModule::isHelperClass);
+  }
+
+  ReferenceMatcher(
       List<String> helperClassNames,
       Map<String, ClassRef> references,
       Predicate<String> libraryInstrumentationPredicate) {
     this.references = references;
     this.helperClassNames = new HashSet<>(helperClassNames);
-    this.instrumentationClassPredicate =
-        new InstrumentationClassPredicate(libraryInstrumentationPredicate);
+    this.helperClassPredicate = new HelperClassPredicate(libraryInstrumentationPredicate);
   }
 
   /**
@@ -101,7 +108,7 @@ public final class ReferenceMatcher {
    */
   private List<Mismatch> checkMatch(ClassRef reference, TypePool typePool, ClassLoader loader) {
     try {
-      if (instrumentationClassPredicate.isInstrumentationClass(reference.getClassName())) {
+      if (helperClassPredicate.isHelperClass(reference.getClassName())) {
         // make sure helper class is registered
         if (!helperClassNames.contains(reference.getClassName())) {
           return singletonList(new Mismatch.MissingClass(reference));

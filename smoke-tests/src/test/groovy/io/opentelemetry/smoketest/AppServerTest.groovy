@@ -5,17 +5,18 @@
 
 package io.opentelemetry.smoketest
 
+import io.opentelemetry.proto.trace.v1.Span
+import org.junit.runner.RunWith
+import spock.lang.Shared
+import spock.lang.Unroll
+
+import java.util.jar.Attributes
+import java.util.jar.JarFile
+
 import static io.opentelemetry.semconv.resource.attributes.ResourceAttributes.OS_TYPE
 import static io.opentelemetry.semconv.resource.attributes.ResourceAttributes.OsTypeValues.LINUX
 import static io.opentelemetry.semconv.resource.attributes.ResourceAttributes.OsTypeValues.WINDOWS
 import static org.junit.Assume.assumeTrue
-
-import io.opentelemetry.proto.trace.v1.Span
-import java.util.jar.Attributes
-import java.util.jar.JarFile
-import org.junit.runner.RunWith
-import spock.lang.Shared
-import spock.lang.Unroll
 
 @RunWith(AppServerTestRunner)
 abstract class AppServerTest extends SmokeTest {
@@ -44,9 +45,9 @@ abstract class AppServerTest extends SmokeTest {
   @Override
   protected String getTargetImage(String jdk, String serverVersion, boolean windows) {
     String platformSuffix = windows ? "-windows" : ""
-    String extraTag = "20210704.998730666"
-    String fullSuffix = "-${serverVersion}-jdk$jdk$platformSuffix-$extraTag"
-    return getTargetImagePrefix() + fullSuffix
+    String extraTag = "20210929.1285231297"
+    String fullSuffix = "${serverVersion}-jdk$jdk$platformSuffix-$extraTag"
+    return getTargetImagePrefix() + ":" + fullSuffix
   }
 
   protected abstract String getTargetImagePrefix()
@@ -98,10 +99,13 @@ abstract class AppServerTest extends SmokeTest {
     traces.countSpansByName(getSpanName('/app/headers')) == 1
 
     and: "The span for the initial web request"
-    traces.countFilteredAttributes("http.url", "http://localhost:${containerManager.getTargetMappedPort(8080)}/app/greeting") == 1
+    traces.countFilteredAttributes("http.target", "/app/greeting") == 1
 
-    and: "Client and server spans for the remote call"
-    traces.countFilteredAttributes("http.url", "http://localhost:8080/app/headers") == 2
+    and: "Client span for the remote call"
+    traces.countFilteredAttributes("http.url", "http://localhost:8080/app/headers") == 1
+
+    and: "Server span for the remote call"
+    traces.countFilteredAttributes("http.target", "/app/headers") == 1
 
     and: "Number of spans with http protocol version"
     traces.countFilteredAttributes("http.flavor", "1.1") == 3
@@ -139,7 +143,7 @@ abstract class AppServerTest extends SmokeTest {
     traces.countSpansByName(getSpanName('/app/hello.txt')) == 1
 
     and: "The span for the initial web request"
-    traces.countFilteredAttributes("http.url", "http://localhost:${containerManager.getTargetMappedPort(8080)}/app/hello.txt") == 1
+    traces.countFilteredAttributes("http.target", "/app/hello.txt") == 1
 
     and: "Number of spans tagged with current otel library version"
     traces.countFilteredResourceAttributes("telemetry.auto.version", currentAgentVersion) == 1
@@ -173,7 +177,7 @@ abstract class AppServerTest extends SmokeTest {
     traces.countSpansByName(getSpanName('/app/file-that-does-not-exist')) == 1
 
     and: "The span for the initial web request"
-    traces.countFilteredAttributes("http.url", "http://localhost:${containerManager.getTargetMappedPort(8080)}/app/file-that-does-not-exist") == 1
+    traces.countFilteredAttributes("http.target", "/app/file-that-does-not-exist") == 1
 
     and: "Number of spans tagged with current otel library version"
     traces.countFilteredResourceAttributes("telemetry.auto.version", currentAgentVersion) == traces.countSpans()
@@ -209,7 +213,7 @@ abstract class AppServerTest extends SmokeTest {
     traces.countSpansByName(getSpanName('/app/WEB-INF/web.xml')) == 1
 
     and: "The span for the initial web request"
-    traces.countFilteredAttributes("http.url", "http://localhost:${containerManager.getTargetMappedPort(8080)}/app/WEB-INF/web.xml") == 1
+    traces.countFilteredAttributes("http.target", "/app/WEB-INF/web.xml") == 1
 
     and: "Number of spans with http protocol version"
     traces.countFilteredAttributes("http.flavor", "1.1") == 1
@@ -251,7 +255,7 @@ abstract class AppServerTest extends SmokeTest {
     traces.countFilteredEventAttributes('exception.message', 'This is expected') == 1
 
     and: "The span for the initial web request"
-    traces.countFilteredAttributes("http.url", "http://localhost:${containerManager.getTargetMappedPort(8080)}/app/exception") == 1
+    traces.countFilteredAttributes("http.target", "/app/exception") == 1
 
     and: "Number of spans tagged with current otel library version"
     traces.countFilteredResourceAttributes("telemetry.auto.version", currentAgentVersion) == 1
@@ -285,7 +289,7 @@ abstract class AppServerTest extends SmokeTest {
     traces.countSpansByName(getSpanName('/this-is-definitely-not-there-but-there-should-be-a-trace-nevertheless')) == 1
 
     and: "The span for the initial web request"
-    traces.countFilteredAttributes("http.url", "http://localhost:${containerManager.getTargetMappedPort(8080)}/this-is-definitely-not-there-but-there-should-be-a-trace-nevertheless") == 1
+    traces.countFilteredAttributes("http.target", "/this-is-definitely-not-there-but-there-should-be-a-trace-nevertheless") == 1
 
     and: "Number of spans with http protocol version"
     traces.countFilteredAttributes("http.flavor", "1.1") == 1
@@ -326,10 +330,13 @@ abstract class AppServerTest extends SmokeTest {
     traces.countSpansByName(getSpanName('/app/headers')) == 1
 
     and: "The span for the initial web request"
-    traces.countFilteredAttributes("http.url", "http://localhost:${containerManager.getTargetMappedPort(8080)}/app/asyncgreeting") == 1
+    traces.countFilteredAttributes("http.target", "/app/asyncgreeting") == 1
 
-    and: "Client and server spans for the remote call"
-    traces.countFilteredAttributes("http.url", "http://localhost:8080/app/headers") == 2
+    and: "Client span for the remote call"
+    traces.countFilteredAttributes("http.url", "http://localhost:8080/app/headers") == 1
+
+    and: "Server span for the remote call"
+    traces.countFilteredAttributes("http.target", "/app/headers") == 1
 
     and: "Number of spans with http protocol version"
     traces.countFilteredAttributes("http.flavor", "1.1") == 3

@@ -7,7 +7,7 @@ package io.opentelemetry.javaagent.instrumentation.httpurlconnection;
 
 import static io.opentelemetry.javaagent.extension.matcher.AgentElementMatchers.extendsClass;
 import static io.opentelemetry.javaagent.instrumentation.api.Java8BytecodeBridge.currentContext;
-import static io.opentelemetry.javaagent.instrumentation.httpurlconnection.HttpUrlConnectionTracer.tracer;
+import static io.opentelemetry.javaagent.instrumentation.httpurlconnection.HttpUrlConnectionSingletons.instrumenter;
 import static net.bytebuddy.matcher.ElementMatchers.isMethod;
 import static net.bytebuddy.matcher.ElementMatchers.isPublic;
 import static net.bytebuddy.matcher.ElementMatchers.nameStartsWith;
@@ -19,12 +19,11 @@ import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.StatusCode;
 import io.opentelemetry.context.Context;
 import io.opentelemetry.context.Scope;
+import io.opentelemetry.instrumentation.api.field.VirtualField;
 import io.opentelemetry.instrumentation.api.tracer.HttpStatusConverter;
 import io.opentelemetry.javaagent.extension.instrumentation.TypeInstrumentation;
 import io.opentelemetry.javaagent.extension.instrumentation.TypeTransformer;
 import io.opentelemetry.javaagent.instrumentation.api.CallDepth;
-import io.opentelemetry.javaagent.instrumentation.api.ContextStore;
-import io.opentelemetry.javaagent.instrumentation.api.InstrumentationContext;
 import io.opentelemetry.javaagent.instrumentation.api.Java8BytecodeBridge;
 import io.opentelemetry.semconv.trace.attributes.SemanticAttributes;
 import java.net.HttpURLConnection;
@@ -76,15 +75,15 @@ public class HttpUrlConnectionInstrumentation implements TypeInstrumentation {
         return;
       }
       Context parentContext = currentContext();
-      if (!tracer().shouldStartSpan(parentContext)) {
+      if (!instrumenter().shouldStart(parentContext, connection)) {
         return;
       }
 
       // using storage for a couple of reasons:
       // - to start an operation in connect() and end it in getInputStream()
       // - to avoid creating a new operation on multiple subsequent calls to getInputStream()
-      ContextStore<HttpURLConnection, HttpUrlState> storage =
-          InstrumentationContext.get(HttpURLConnection.class, HttpUrlState.class);
+      VirtualField<HttpURLConnection, HttpUrlState> storage =
+          VirtualField.find(HttpURLConnection.class, HttpUrlState.class);
       httpUrlState = storage.get(connection);
 
       if (httpUrlState != null) {
@@ -94,9 +93,9 @@ public class HttpUrlConnectionInstrumentation implements TypeInstrumentation {
         return;
       }
 
-      Context context = tracer().startSpan(parentContext, connection);
+      Context context = instrumenter().start(parentContext, connection);
       httpUrlState = new HttpUrlState(context);
-      storage.put(connection, httpUrlState);
+      storage.set(connection, httpUrlState);
       scope = context.makeCurrent();
     }
 
@@ -122,16 +121,21 @@ public class HttpUrlConnectionInstrumentation implements TypeInstrumentation {
           // HttpURLConnection unnecessarily throws exception on error response.
           // None of the other http clients do this, so not recording the exception on the span
           // to be consistent with the telemetry for other http clients.
-          tracer().end(httpUrlState.context, new HttpUrlResponse(connection, responseCode));
+          instrumenter().end(httpUrlState.context, connection, responseCode, null);
         } else {
-          tracer().endExceptionally(httpUrlState.context, throwable);
+          instrumenter()
+              .end(
+                  httpUrlState.context,
+                  connection,
+                  responseCode > 0 ? responseCode : null,
+                  throwable);
         }
         httpUrlState.finished = true;
       } else if (methodName.equals("getInputStream") && responseCode > 0) {
         // responseCode field is sometimes not populated.
         // We can't call getResponseCode() due to some unwanted side-effects
         // (e.g. breaks getOutputStream).
-        tracer().end(httpUrlState.context, new HttpUrlResponse(connection, responseCode));
+        instrumenter().end(httpUrlState.context, connection, responseCode, null);
         httpUrlState.finished = true;
       }
     }
@@ -144,8 +148,8 @@ public class HttpUrlConnectionInstrumentation implements TypeInstrumentation {
     public static void methodExit(
         @Advice.This HttpURLConnection connection, @Advice.Return int returnValue) {
 
-      ContextStore<HttpURLConnection, HttpUrlState> storage =
-          InstrumentationContext.get(HttpURLConnection.class, HttpUrlState.class);
+      VirtualField<HttpURLConnection, HttpUrlState> storage =
+          VirtualField.find(HttpURLConnection.class, HttpUrlState.class);
       HttpUrlState httpUrlState = storage.get(connection);
       if (httpUrlState != null) {
         Span span = Java8BytecodeBridge.spanFromContext(httpUrlState.context);

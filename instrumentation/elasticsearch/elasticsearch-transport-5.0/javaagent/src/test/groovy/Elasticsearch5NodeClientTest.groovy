@@ -3,11 +3,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import static io.opentelemetry.api.trace.SpanKind.CLIENT
-import static io.opentelemetry.api.trace.SpanKind.INTERNAL
-import static io.opentelemetry.api.trace.StatusCode.ERROR
-import static org.elasticsearch.cluster.ClusterName.CLUSTER_NAME_SETTING
-
 import io.opentelemetry.semconv.trace.attributes.SemanticAttributes
 import org.elasticsearch.client.Client
 import org.elasticsearch.common.io.FileSystemUtils
@@ -19,6 +14,11 @@ import org.elasticsearch.node.internal.InternalSettingsPreparer
 import org.elasticsearch.transport.Netty3Plugin
 import spock.lang.Shared
 import spock.lang.Unroll
+
+import static io.opentelemetry.api.trace.SpanKind.CLIENT
+import static io.opentelemetry.api.trace.SpanKind.INTERNAL
+import static io.opentelemetry.api.trace.StatusCode.ERROR
+import static org.elasticsearch.cluster.ClusterName.CLUSTER_NAME_SETTING
 
 class Elasticsearch5NodeClientTest extends AbstractElasticsearchNodeClientTest {
   public static final long TIMEOUT = 10000 // 10 seconds
@@ -161,8 +161,8 @@ class Elasticsearch5NodeClientTest extends AbstractElasticsearchNodeClientTest {
     indexType = "test-type"
     id = "1"
     callKind | call
-    "sync"   | { indexName, indexType, id -> prepareGetSync(indexName, indexType, id) }
-    "async"  | { indexName, indexType, id -> prepareGetAsync(indexName, indexType, id) }
+    "sync" | { indexName, indexType, id -> prepareGetSync(indexName, indexType, id) }
+    "async" | { indexName, indexType, id -> prepareGetAsync(indexName, indexType, id) }
   }
 
   def "test elasticsearch get"() {
@@ -243,7 +243,7 @@ class Elasticsearch5NodeClientTest extends AbstractElasticsearchNodeClientTest {
           }
         }
       }
-      trace(3, 2) {
+      trace(3, 1) {
         span(0) {
           name "IndexAction"
           kind CLIENT
@@ -258,17 +258,6 @@ class Elasticsearch5NodeClientTest extends AbstractElasticsearchNodeClientTest {
             "elasticsearch.shard.replication.total" 2
             "elasticsearch.shard.replication.successful" 1
             "elasticsearch.shard.replication.failed" 0
-          }
-        }
-        span(1) {
-          name "PutMappingAction"
-          kind CLIENT
-          childOf span(0)
-          attributes {
-            "${SemanticAttributes.DB_SYSTEM.key}" "elasticsearch"
-            "${SemanticAttributes.DB_OPERATION.key}" "PutMappingAction"
-            "elasticsearch.action" "PutMappingAction"
-            "elasticsearch.request" "PutMappingRequest"
           }
         }
       }

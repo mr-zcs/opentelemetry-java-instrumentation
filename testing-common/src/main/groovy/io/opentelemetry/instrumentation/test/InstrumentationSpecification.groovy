@@ -12,14 +12,16 @@ import io.opentelemetry.api.trace.Span
 import io.opentelemetry.context.ContextStorage
 import io.opentelemetry.instrumentation.test.asserts.InMemoryExporterAssert
 import io.opentelemetry.instrumentation.testing.InstrumentationTestRunner
+import io.opentelemetry.instrumentation.testing.util.ContextStorageCloser
 import io.opentelemetry.instrumentation.testing.util.TelemetryDataUtil
 import io.opentelemetry.instrumentation.testing.util.ThrowingSupplier
 import io.opentelemetry.sdk.metrics.data.MetricData
 import io.opentelemetry.sdk.trace.data.SpanData
-import java.util.concurrent.TimeUnit
 import org.junit.Rule
 import org.junit.rules.Timeout
 import spock.lang.Specification
+
+import java.util.concurrent.TimeUnit
 
 /**
  * Base class for test specifications that are shared between instrumentation libraries and agent.
@@ -46,9 +48,7 @@ abstract class InstrumentationSpecification extends Specification {
 
   def cleanup() {
     ContextStorage storage = ContextStorage.get()
-    if (storage instanceof AutoCloseable) {
-      ((AutoCloseable) storage).close()
-    }
+    ContextStorageCloser.close(storage)
   }
 
   def cleanupSpec() {

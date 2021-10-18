@@ -26,12 +26,15 @@ public final class CxfHelper {
     Context parentContext = Context.current();
 
     CxfRequest request = new CxfRequest(message);
-    ServerSpanNaming.updateServerSpanName(
-        parentContext,
-        CONTROLLER,
-        CxfServerSpanNaming.getServerSpanNameSupplier(parentContext, request));
 
-    if (!request.shouldCreateSpan() || !instrumenter().shouldStart(parentContext, request)) {
+    if (!request.shouldCreateSpan()) {
+      return;
+    }
+
+    ServerSpanNaming.updateServerSpanName(
+        parentContext, CONTROLLER, CxfServerSpanNaming.SERVER_SPAN_NAME, request);
+
+    if (!instrumenter().shouldStart(parentContext, request)) {
       return;
     }
 

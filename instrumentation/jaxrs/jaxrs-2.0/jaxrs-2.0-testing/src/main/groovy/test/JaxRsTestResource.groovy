@@ -5,21 +5,11 @@
 
 package test
 
-import static io.opentelemetry.instrumentation.test.base.HttpServerTest.ServerEndpoint.ERROR
-import static io.opentelemetry.instrumentation.test.base.HttpServerTest.ServerEndpoint.EXCEPTION
-import static io.opentelemetry.instrumentation.test.base.HttpServerTest.ServerEndpoint.INDEXED_CHILD
-import static io.opentelemetry.instrumentation.test.base.HttpServerTest.ServerEndpoint.PATH_PARAM
-import static io.opentelemetry.instrumentation.test.base.HttpServerTest.ServerEndpoint.QUERY_PARAM
-import static io.opentelemetry.instrumentation.test.base.HttpServerTest.ServerEndpoint.REDIRECT
-import static io.opentelemetry.instrumentation.test.base.HttpServerTest.ServerEndpoint.SUCCESS
-import static java.util.concurrent.TimeUnit.SECONDS
-
 import io.opentelemetry.instrumentation.test.base.HttpServerTest
-import java.util.concurrent.CompletableFuture
-import java.util.concurrent.CompletionStage
-import java.util.concurrent.CyclicBarrier
+
 import javax.ws.rs.ApplicationPath
 import javax.ws.rs.GET
+import javax.ws.rs.HeaderParam
 import javax.ws.rs.Path
 import javax.ws.rs.PathParam
 import javax.ws.rs.QueryParam
@@ -30,6 +20,19 @@ import javax.ws.rs.core.Context
 import javax.ws.rs.core.Response
 import javax.ws.rs.core.UriInfo
 import javax.ws.rs.ext.ExceptionMapper
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.CompletionStage
+import java.util.concurrent.CyclicBarrier
+
+import static io.opentelemetry.instrumentation.test.base.HttpServerTest.ServerEndpoint.CAPTURE_HEADERS
+import static io.opentelemetry.instrumentation.test.base.HttpServerTest.ServerEndpoint.ERROR
+import static io.opentelemetry.instrumentation.test.base.HttpServerTest.ServerEndpoint.EXCEPTION
+import static io.opentelemetry.instrumentation.test.base.HttpServerTest.ServerEndpoint.INDEXED_CHILD
+import static io.opentelemetry.instrumentation.test.base.HttpServerTest.ServerEndpoint.PATH_PARAM
+import static io.opentelemetry.instrumentation.test.base.HttpServerTest.ServerEndpoint.QUERY_PARAM
+import static io.opentelemetry.instrumentation.test.base.HttpServerTest.ServerEndpoint.REDIRECT
+import static io.opentelemetry.instrumentation.test.base.HttpServerTest.ServerEndpoint.SUCCESS
+import static java.util.concurrent.TimeUnit.SECONDS
 
 @Path("")
 class JaxRsTestResource {
@@ -82,6 +85,17 @@ class JaxRsTestResource {
   String path_param(@PathParam("id") int id) {
     HttpServerTest.controller(PATH_PARAM) {
       id
+    }
+  }
+
+  @GET
+  @Path("captureHeaders")
+  Response capture_headers(@HeaderParam("X-Test-Request") String header) {
+    HttpServerTest.controller(CAPTURE_HEADERS) {
+      Response.status(CAPTURE_HEADERS.status)
+        .header("X-Test-Response", header)
+        .entity(CAPTURE_HEADERS.body)
+        .build()
     }
   }
 

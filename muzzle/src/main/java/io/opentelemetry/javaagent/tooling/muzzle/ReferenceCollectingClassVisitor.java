@@ -6,13 +6,14 @@
 package io.opentelemetry.javaagent.tooling.muzzle;
 
 import com.google.common.collect.EvictingQueue;
-import io.opentelemetry.javaagent.extension.muzzle.ClassRef;
-import io.opentelemetry.javaagent.extension.muzzle.Flag;
-import io.opentelemetry.javaagent.extension.muzzle.Flag.ManifestationFlag;
-import io.opentelemetry.javaagent.extension.muzzle.Flag.MinimumVisibilityFlag;
-import io.opentelemetry.javaagent.extension.muzzle.Flag.OwnershipFlag;
-import io.opentelemetry.javaagent.extension.muzzle.Flag.VisibilityFlag;
-import io.opentelemetry.javaagent.extension.muzzle.Source;
+import io.opentelemetry.instrumentation.api.field.VirtualField;
+import io.opentelemetry.javaagent.tooling.muzzle.references.ClassRef;
+import io.opentelemetry.javaagent.tooling.muzzle.references.Flag;
+import io.opentelemetry.javaagent.tooling.muzzle.references.Flag.ManifestationFlag;
+import io.opentelemetry.javaagent.tooling.muzzle.references.Flag.MinimumVisibilityFlag;
+import io.opentelemetry.javaagent.tooling.muzzle.references.Flag.OwnershipFlag;
+import io.opentelemetry.javaagent.tooling.muzzle.references.Flag.VisibilityFlag;
+import io.opentelemetry.javaagent.tooling.muzzle.references.Source;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -104,7 +105,7 @@ final class ReferenceCollectingClassVisitor extends ClassVisitor {
     return type;
   }
 
-  private final InstrumentationClassPredicate instrumentationClassPredicate;
+  private final HelperClassPredicate helperClassPredicate;
   private final boolean isAdviceClass;
 
   private final Map<String, ClassRef> references = new LinkedHashMap<>();
@@ -112,14 +113,15 @@ final class ReferenceCollectingClassVisitor extends ClassVisitor {
   // helper super classes which are themselves also helpers
   // this is needed for injecting the helper classes into the class loader in the correct order
   private final Set<String> helperSuperClasses = new HashSet<>();
-  private final Map<String, String> contextStoreClasses = new LinkedHashMap<>();
+  private final VirtualFieldMappingsBuilderImpl virtualFieldMappingsBuilder =
+      new VirtualFieldMappingsBuilderImpl();
   private String refSourceClassName;
   private Type refSourceType;
 
   ReferenceCollectingClassVisitor(
-      InstrumentationClassPredicate instrumentationClassPredicate, boolean isAdviceClass) {
+      HelperClassPredicate helperClassPredicate, boolean isAdviceClass) {
     super(Opcodes.ASM7);
-    this.instrumentationClassPredicate = instrumentationClassPredicate;
+    this.helperClassPredicate = helperClassPredicate;
     this.isAdviceClass = isAdviceClass;
   }
 
@@ -135,13 +137,13 @@ final class ReferenceCollectingClassVisitor extends ClassVisitor {
     return helperSuperClasses;
   }
 
-  Map<String, String> getContextStoreClasses() {
-    return contextStoreClasses;
+  VirtualFieldMappings getVirtualFieldMappings() {
+    return virtualFieldMappingsBuilder.build();
   }
 
   private void addExtendsReference(ClassRef ref) {
     addReference(ref);
-    if (instrumentationClassPredicate.isInstrumentationClass(ref.getClassName())) {
+    if (helperClassPredicate.isHelperClass(ref.getClassName())) {
       helperSuperClasses.add(ref.getClassName());
     }
   }
@@ -155,7 +157,7 @@ final class ReferenceCollectingClassVisitor extends ClassVisitor {
         references.put(ref.getClassName(), reference.merge(ref));
       }
     }
-    if (instrumentationClassPredicate.isInstrumentationClass(ref.getClassName())) {
+    if (helperClassPredicate.isHelperClass(ref.getClassName())) {
       helperClasses.add(ref.getClassName());
     }
   }
@@ -244,7 +246,7 @@ final class ReferenceCollectingClassVisitor extends ClassVisitor {
     // Additional references we could check
     // - Classes in signature (return type, params) and visible from this package
     return new AdviceReferenceMethodVisitor(
-        new InstrumentationContextMethodVisitor(
+        new VirtualFieldCollectingMethodVisitor(
             super.visitMethod(access, name, descriptor, signature, exceptions)));
   }
 
@@ -462,12 +464,12 @@ final class ReferenceCollectingClassVisitor extends ClassVisitor {
     }
   }
 
-  private class InstrumentationContextMethodVisitor extends MethodVisitor {
+  private class VirtualFieldCollectingMethodVisitor extends MethodVisitor {
     // this data structure will remember last two LDC <class> instructions before
-    // InstrumentationContext.get() call
-    private final EvictingQueue<String> lastTwoClassConstants = EvictingQueue.create(2);
+    // VirtualField.find() call
+    private final EvictingQueue<Type> lastTwoClassConstants = EvictingQueue.create(2);
 
-    InstrumentationContextMethodVisitor(MethodVisitor methodVisitor) {
+    VirtualFieldCollectingMethodVisitor(MethodVisitor methodVisitor) {
       super(Opcodes.ASM7, methodVisitor);
     }
 
@@ -505,26 +507,41 @@ final class ReferenceCollectingClassVisitor extends ClassVisitor {
     public void visitMethodInsn(
         int opcode, String owner, String name, String descriptor, boolean isInterface) {
 
+      String getVirtualFieldDescriptor =
+          Type.getMethodDescriptor(
+              Type.getType(VirtualField.class),
+              Type.getType(Class.class),
+              Type.getType(Class.class));
+
       Type methodType = Type.getMethodType(descriptor);
       Type ownerType = Type.getType("L" + owner + ";");
 
-      // remember used context classes if this is an InstrumentationContext.get() call
-      if ("io.opentelemetry.javaagent.instrumentation.api.InstrumentationContext"
-              .equals(ownerType.getClassName())
-          && "get".equals(name)
-          && methodType.getArgumentTypes().length == 2) {
+      // remember used context classes if this is an VirtualField.get() call
+      if ("io.opentelemetry.instrumentation.api.field.VirtualField".equals(ownerType.getClassName())
+          && "find".equals(name)
+          && methodType.getDescriptor().equals(getVirtualFieldDescriptor)) {
         // in case of invalid scenario (not using .class ref directly) don't store anything and
         // clear the last LDC <class> stack
         // note that FieldBackedProvider also check for an invalid context call in the runtime
         if (lastTwoClassConstants.remainingCapacity() == 0) {
-          String className = lastTwoClassConstants.poll();
-          String contextClassName = lastTwoClassConstants.poll();
-          contextStoreClasses.put(className, contextClassName);
+          Type type = lastTwoClassConstants.poll();
+          Type fieldType = lastTwoClassConstants.poll();
+
+          if (type.getSort() != Type.OBJECT) {
+            throw new MuzzleCompilationException(
+                "Invalid VirtualField#find(Class, Class) usage: you cannot pass array or primitive types as the field owner type");
+          }
+          if (fieldType.getSort() != Type.OBJECT && fieldType.getSort() != Type.ARRAY) {
+            throw new MuzzleCompilationException(
+                "Invalid VirtualField#find(Class, Class) usage: you cannot pass primitive types as the field type");
+          }
+
+          virtualFieldMappingsBuilder.register(type.getClassName(), fieldType.getClassName());
         } else {
           throw new MuzzleCompilationException(
-              "Invalid InstrumentationContext#get(Class, Class) usage: you cannot pass variables,"
+              "Invalid VirtualField#find(Class, Class) usage: you cannot pass variables,"
                   + " method parameters, compute classes; class references need to be passed"
-                  + " directly to the get() method");
+                  + " directly to the find() method");
         }
       }
 
@@ -547,14 +564,12 @@ final class ReferenceCollectingClassVisitor extends ClassVisitor {
     private void registerOpcode(int opcode, Object value) {
       // check if this is an LDC <class> instruction; if so, remember the class that was used
       // we need to remember last two LDC <class> instructions that were executed before
-      // InstrumentationContext.get() call
+      // VirtualField.get() call
       if (opcode == Opcodes.LDC) {
         if (value instanceof Type) {
           Type type = (Type) value;
-          if (type.getSort() == Type.OBJECT) {
-            lastTwoClassConstants.add(type.getClassName());
-            return;
-          }
+          lastTwoClassConstants.add(type);
+          return;
         }
       }
 

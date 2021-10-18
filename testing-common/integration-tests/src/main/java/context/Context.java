@@ -5,10 +5,6 @@
 
 package context;
 
-import io.opentelemetry.javaagent.instrumentation.api.ContextStore;
-
 public class Context {
-  public static final ContextStore.Factory<Context> FACTORY = Context::new;
-
   public int count = 0;
 }
